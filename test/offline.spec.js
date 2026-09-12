@@ -84,7 +84,9 @@ test('서버 프로세스를 죽여도 캐시만으로 앱이 열린다', async 
     const c = await caches.open(names[0]);
     return { cache: names[0], urls: (await c.keys()).map(r => new URL(r.url).pathname) };
   });
-  expect(cached.cache, '캐시 이름').toBe('kidboard-v1');
+  // 캐시 이름은 배포마다 바뀐다(Actions 가 커밋 해시를 박는다).
+  // 이름을 못박으면 배포할 때마다 이 테스트가 깨지므로 접두어만 본다.
+  expect(cached.cache, '캐시 이름').toMatch(/^kidboard-/);
   for (const must of ['/index.html', '/css/style.css', '/js/store.js', '/js/app.js',
                       '/manifest.webmanifest', '/icons/icon-192.png']) {
     expect(cached.urls, `${must} 가 캐시에 있어야 한다`).toContain(must);
