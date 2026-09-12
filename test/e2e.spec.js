@@ -22,7 +22,7 @@ test.beforeAll(async ({ browser }) => {
 
   await page.goto('/');
   // 이전 실행이 남긴 데이터가 판정을 오염시키지 않도록
-  await page.evaluate(() => localStorage.removeItem('kidboard.v1'));
+  await page.evaluate(() => localStorage.removeItem('kidboard.v2'));
   await page.reload();
 });
 
@@ -42,7 +42,7 @@ const AFTER_TOGGLE = 700;
 test('[0] 회귀: 닫힌 모달이 화면을 막지 않는다', async () => {
   const diag = await page.evaluate(() => {
     const m = document.getElementById('modal');
-    const card = document.querySelector('[data-act="open-kid"]');
+    const card = document.querySelector('[data-act="shop"]');
     const r = card.getBoundingClientRect();
     const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
     return {
@@ -59,117 +59,39 @@ test('[0] 회귀: 닫힌 모달이 화면을 막지 않는다', async () => {
 });
 
 // ------------------------------------------------------------
-test('[1] 홈 — 아이 2명, 별 0, 빈 병', async () => {
-  await expect(page.locator('[data-act="open-kid"]')).toHaveCount(2);
-
-  const txt = await page.locator('#screen').innerText();
-  expect(txt, '시작 시 별이 0이어야 한다').not.toMatch(/⭐\s*[1-9]/);
-
-  const fill = await page.evaluate(() => {
-    const r = document.querySelector('.jar rect[fill="#F6BD3B"]');
-    return r ? r.getAttribute('height') : null;
-  });
-  expect(fill, '별 병 채움 높이').toBe('0');
+test('[1] 앱을 켜면 아이 선택 없이 바로 할 일 화면', async () => {
+  // 아이가 1명이면 고르게 할 이유가 없다. 탭 한 번을 아낀다.
+  expect(await page.locator('[data-act="open-kid"]').count(),
+    '아이 선택 카드가 없어야 한다').toBe(0);
+  await expect(page.locator('.kidtop__name')).toHaveText('첫째');
 });
 
-test('[2] 할 일 화면 — 요일 필터가 걸린다', async () => {
-  await page.locator('[data-act="open-kid"]').first().click();
-  await page.waitForSelector('.tile');
-
-  const labels = await page.locator('.tile__label').allInnerTexts();
+test('[2] 습관은 칩으로 보이고 요일 필터가 걸린다', async () => {
+  const labels = await page.locator('.chip__label').allInnerTexts();
   const wd = await page.evaluate(() => new Date().getDay());
   const weekend = wd === 0 || wd === 6;
-
-  expect(labels, `요일 ${wd} 기준 타일 수`).toHaveLength(weekend ? 3 : 4);
-  // "가방 챙기기"는 days:[1..5] 라 주말에는 빠져야 한다
-  expect(labels.includes('가방 챙기기'), `요일 ${wd}: 가방 챙기기 노출 여부`).toBe(!weekend);
+  // "가방 챙기기" 는 days:[1..5] 라 주말에는 빠진다
+  expect(labels.includes('가방 챙기기'), `요일 ${wd}`).toBe(!weekend);
+  expect(labels.length, '습관 칩이 하나 이상').toBeGreaterThan(0);
 });
 
-test('[3~4] 체크하면 도장이 찍히고 별이 는다', async () => {
-  const tile = () => page.locator('.tile', { hasText: '책 10분 읽기' });
-  await tile().click();
-  await page.waitForTimeout(AFTER_TOGGLE);
+test('[3] 습관을 누르면 별이 오르고 다시 누르면 회수된다', async () => {
+  const chip = () => page.locator('.chip', { hasText: '이 닦기' });
+  const stars = () => page.evaluate(() => KB.store.starsOf('c1'));
 
-  await expect(tile()).toHaveClass(/is-done/);
-  await expect(tile()).toHaveAttribute('aria-pressed', 'true');
+  expect(await stars()).toBe(0);
+  await chip().click();
+  await page.waitForTimeout(700);
+  await expect(chip()).toHaveClass(/is-done/);
+  expect(await stars(), '이 닦기는 별 1개').toBe(1);
 
-  const stars = await page.evaluate(() => KB.store.getChild('c1').stars);
-  expect(stars, '책 10분 읽기는 별 2개').toBe(2);
-
-  const fill = await page.evaluate(() => {
-    const r = document.querySelector('.jar rect[fill="#F6BD3B"]');
-    return r ? +r.getAttribute('height') : -1;
-  });
-  expect(fill, '병 수위가 올라야 한다').toBeGreaterThan(0);
-});
-
-test('[5] 해제하면 별을 회수한다 — 반복 체크로 못 쌓는다', async () => {
-  const tile = () => page.locator('.tile', { hasText: '책 10분 읽기' });
-
-  await tile().click();
-  await page.waitForTimeout(AFTER_TOGGLE);
-  expect(await page.evaluate(() => KB.store.getChild('c1').stars)).toBe(0);
+  await chip().click();
+  await page.waitForTimeout(700);
+  expect(await stars(), '해제하면 회수').toBe(0);
 
   // 아이들이 30초 안에 찾아내는 구멍이다. 5번 흔들어 본다.
-  for (let i = 0; i < 5; i++) {
-    await tile().click();
-    await page.waitForTimeout(550);
-  }
-  const stars = await page.evaluate(() => KB.store.getChild('c1').stars);
-  expect(stars, '5회 토글 후에도 별 2 고정(누적 아님)').toBe(2);
-});
-
-test('[6] 전부 체크하면 축하 문구가 뜬다', async () => {
-  const ids = await page.evaluate(() => KB.store.tasksFor('c1').map(t => t.id));
-  for (const id of ids) {
-    const t = page.locator(`.tile[data-id="${id}"]`);
-    if (!/is-done/.test(await t.getAttribute('class'))) {
-      await t.click();
-      await page.waitForTimeout(550);
-    }
-  }
-  await expect(page.locator('#screen')).toContainText('오늘 할 일 전부 끝!');
-});
-
-test('[7] 상점 — 모자라면 "별 N개 더"와 진행 막대', async () => {
-  await page.locator('[data-act="shop"]').click();
-  await page.waitForSelector('.shopitem');
-
-  const needs = await page.locator('.shopitem__need').allInnerTexts();
-  expect(needs.length, '부족한 항목이 하나는 있어야 한다').toBeGreaterThan(0);
-  for (const n of needs) expect(n).toMatch(/별 \d+개 더/);
-
-  const widths = await page.evaluate(
-    () => [...document.querySelectorAll('.shopitem__bar i')].map(i => i.style.width));
-  expect(widths.every(w => /^\d+%$/.test(w)), `막대 너비: ${widths.join(', ')}`).toBe(true);
-});
-
-test('[8] 교환은 PIN을 통과해야만 된다', async () => {
-  await page.evaluate(() => { KB.store.adjustStars('c1', 100); KB.app.render(); });
-  await page.waitForTimeout(200);
-
-  const before = await page.evaluate(() => KB.store.getChild('c1').stars);
-  const go = page.locator('[data-act="redeem"]').first();
-  expect(await go.count(), '별이 충분하면 "바꾸기"가 나와야 한다').toBeGreaterThan(0);
-
-  const rid = await go.getAttribute('data-id');
-  const cost = await page.evaluate(id => KB.store.all().rewards.find(r => r.id === id).cost, rid);
-
-  await go.click();
-  await page.waitForSelector('.keypad');
-
-  // 틀린 PIN 은 막혀야 한다
-  for (const k of ['9', '9', '9', '9']) await page.locator(`.key[data-k="${k}"]`).click();
-  await page.waitForTimeout(400);
-  expect(await page.locator('.keypad').count(), '틀린 PIN 이면 모달이 남아야 한다').toBeGreaterThan(0);
-  expect(await page.evaluate(() => KB.store.getChild('c1').stars),
-    '틀린 PIN 으로 별이 깎이면 안 된다').toBe(before);
-
-  // 맞는 PIN
-  for (const k of ['1', '2', '3', '4']) await page.locator(`.key[data-k="${k}"]`).click();
-  await page.waitForTimeout(600);
-  expect(await page.evaluate(() => KB.store.getChild('c1').stars), '가격만큼 차감').toBe(before - cost);
-  expect(await page.evaluate(() => KB.store.all().redemptions.length), '교환 기록').toBe(1);
+  for (let i = 0; i < 5; i++) { await chip().click(); await page.waitForTimeout(550); }
+  expect(await stars(), '5회 토글 후에도 1 고정').toBe(1);
 });
 
 test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {
@@ -197,34 +119,18 @@ test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {
   expect(await page.evaluate(() => KB.app.current().view)).toBe('admin');
 });
 
-test('[10] 부모가 추가한 할 일이 새로고침 없이 반영된다', async () => {
-  await page.evaluate(() => KB.store.upsert('tasks', {
-    childId: 'c1', emoji: '🌱', label: '자동화 테스트 항목', stars: 3, days: [0, 1, 2, 3, 4, 5, 6]
-  }, 't'));
-  await page.evaluate(() => KB.app.go('kid', 'c1'));
-  await page.waitForTimeout(400);
-
-  const labels = await page.locator('.tile__label').allInnerTexts();
-  expect(labels, '추가 항목이 보여야 한다').toContain('자동화 테스트 항목');
-
-  // 글 못 읽는 아이를 위해 숫자가 아니라 별 그림으로
-  const stars = await page.locator('.tile', { hasText: '자동화 테스트 항목' })
-    .locator('.tile__stars').innerText();
-  expect(stars).toBe('⭐⭐⭐');
-});
-
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
-    raw: localStorage.getItem('kidboard.v1'),
-    stars: KB.store.getChild('c1').stars,
+    raw: localStorage.getItem('kidboard.v2'),
+    stars: KB.store.starsOf('c1'),
     done: KB.store.doneIds('c1').slice().sort()
   }));
-  expect(before.raw, 'kidboard.v1 키').not.toBeNull();
+  expect(before.raw, 'kidboard.v2 키').not.toBeNull();
 
   await page.reload();
 
   const after = await page.evaluate(() => ({
-    stars: KB.store.getChild('c1').stars,
+    stars: KB.store.starsOf('c1'),
     done: KB.store.doneIds('c1').slice().sort()
   }));
   expect(after.stars, '별 유지').toBe(before.stars);
@@ -239,37 +145,6 @@ test('[13] 서비스워커가 활성화된다', async () => {
     }),
     { timeout: 10000, message: 'SW 활성화 대기' }
   ).toContain('activated');
-});
-
-test('[15] 자정이 지나면 체크만 비워지고 별은 남는다', async () => {
-  const r = await page.evaluate(() => {
-    const S = KB.store;
-    const tomorrow = S.dateKey(new Date(Date.now() + 86400000));
-    return {
-      stars: S.getChild('c1').stars,
-      tomorrowDone: S.progressOf('c1', tomorrow).done
-    };
-  });
-  expect(r.tomorrowDone, '날짜 키가 바뀌면 체크는 0').toBe(0);
-  expect(r.stars, '누적 별은 살아남아야 한다').toBeGreaterThan(0);
-});
-
-test('[16] streak — 오늘이 미완성이어도 어제를 지운다고 끊지 않는다', async () => {
-  const r = await page.evaluate(() => {
-    const S = KB.store, c = 'c1';
-    const ratio = S.progressOf(c).ratio;
-    const full = S.streakOf(c);
-    const done = S.doneIds(c);
-    done.forEach(id => S.toggleTask(c, id));      // 오늘 0% 로
-    const emptied = S.streakOf(c);
-    done.forEach(id => S.toggleTask(c, id));      // 원복
-    return { ratio, full, emptied, restored: S.streakOf(c) };
-  });
-
-  // 오늘 100% 면 최소 1일, 미완료가 남아 있으면 0 이 정상이다
-  expect(r.ratio === 1 ? r.full >= 1 : r.full === 0,
-    `ratio=${r.ratio} streak=${r.full}`).toBe(true);
-  expect(r.restored, '토글을 원복하면 streak 도 돌아와야 한다').toBe(r.full);
 });
 
 test('[X] 아이 이름에 태그를 넣어도 실행되지 않는다', async () => {

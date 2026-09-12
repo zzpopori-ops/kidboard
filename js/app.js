@@ -21,10 +21,15 @@
 
   function render() {
     state.day = store.dateKey();
-    if (state.view === 'kid') return views.renderKid(state.id);
-    if (state.view === 'shop') return views.renderShop(state.id);
     if (state.view === 'admin') return admin.renderAdmin();
-    return views.renderHome();
+    if (state.view === 'shop') return views.renderShop(state.id || firstChildId());
+    return views.renderKid(state.id || firstChildId());
+  }
+
+  /** 아이가 1명이면 고르게 할 이유가 없다. 늘어나면 선택 화면이 저절로 돌아온다. */
+  function firstChildId() {
+    var list = store.children();
+    return list.length ? list[0].id : null;
   }
 
   // ------------------------------------------------------------
@@ -44,7 +49,7 @@
     if (act === 'home') return go('home');
     if (act === 'open-kid') return go('kid', id);
     if (act === 'shop') return go('shop', state.id);
-    if (act === 'toggle') return views.onToggle(id, btn);
+    if (act === 'habit') return views.onToggleHabit(id, btn);
     if (act === 'redeem') return views.onRedeem(id);
   });
 
