@@ -1,0 +1,105 @@
+name: 테스트하고 배포
+
+# main 에 올라간 것만 배포한다. PR 은 테스트만 돌려서,
+# 깨진 커밋이 공개 이력과 태블릿 양쪽에 닿지 않게 막는다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포가 겹치면 나중 것이 이긴다. 중간에 끊지는 않는다.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ----------------------------------------------------------
+  # 1) 테스트. 여기서 실패하면 배포 잡은 아예 시작하지 않는다.
+  # ----------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    container:
+      # 로컬 compose 와 같은 이미지·같은 버전. package.json 의
+      # @playwright/test 와 반드시 일치해야 브라우저를 다시 받지 않는다.
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+      # Chromium 이 공유 메모리를 많이 쓴다. 기본 /dev/shm(64MB)이면 탭이 죽는다.
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 테스트가 전부 수집되는지 확인
+        # 설정을 잘못 건드려 일부만 돌고 초록불이 나는 상황을 막는다.
+        # 스펙 파일이 하나라도 빠지면 여기서 멈춘다.
+        run: |
+          npx playwright test --list > /tmp/list.txt
+          cat /tmp/list.txt
+          for f in e2e.spec.js offline.spec.js update.spec.js; do
+            if ! grep -q "$f" /tmp/list.txt; then
+              echo "::error::$f 가 수집되지 않았다. playwright.config.js 의 testMatch 를 확인할 것"
+              exit 1
+            fi
+          done
+
+      - name: 단위 + E2E + 오프라인 + 갱신
+        # npm test = test:unit && test:e2e
+        #   test:unit  store.test.js (데이터 규칙)
+        #   test:e2e   e2e / offline / update 스펙 전부
+        run: npm test
+
+  # ----------------------------------------------------------
+  # 2) 배포. test 가 통과해야만 돈다.
+  # ----------------------------------------------------------
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 배포물 구성
+        # 앱 파일만 올린다. 테스트·Dockerfile·설정은 사이트에 둘 이유가 없다.
+        run: |
+          mkdir -p _site
+          cp -R index.html sw.js manifest.webmanifest css js icons _site/
+          ls -R _site
+
+      - name: sw.js 의 BUILD 를 커밋 해시로 치환
+        # 캐시 이름이 배포마다 달라져야 옛 캐시가 정리된다.
+        # 사람이 손으로 올리지 않게 하는 것이 이 단계의 목적이다.
+        run: |
+          sed -i "s/var BUILD = 'dev';/var BUILD = '${GITHUB_SHA}';/" _site/sw.js
+          grep -n "var BUILD" _site/sw.js
+
+      - name: 치환이 실제로 됐는지 확인
+        # 'dev' 가 그대로 나가면 캐시 무효화가 통째로 죽는다.
+        # 조용히 지나가면 안 되는 실패라 배포 전에 못박는다.
+        run: |
+          if grep -q "var BUILD = 'dev';" _site/sw.js; then
+            echo "::error::BUILD 가 치환되지 않고 'dev' 로 남았다"
+            exit 1
+          fi
+          if ! grep -q "var BUILD = '${GITHUB_SHA}';" _site/sw.js; then
+            echo "::error::BUILD 가 커밋 해시(${GITHUB_SHA})로 바뀌지 않았다"
+            exit 1
+          fi
+          echo "확인됨: $(grep "var BUILD" _site/sw.js)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
