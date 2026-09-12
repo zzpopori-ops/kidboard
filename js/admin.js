@@ -15,7 +15,8 @@
   var EMOJI_GIFT = ['🍦','📺','🎠','🍪','🎁','🧁','🎬','🏊','🚲','🎨','🍕','🧩'];
   var COLORS = ['#3D7EA6','#4C9F70','#D64550','#C1720A','#7A5AA6','#1F8A8C'];
 
-  var tab = 'children';
+  // 숙제는 부모가 매일 쓰는 탭이라 맨 앞 · 기본 탭으로 둔다
+  var tab = 'homework';
 
   function screen() { return $('#screen'); }
 
@@ -23,7 +24,7 @@
   // 전체 렌더
   // ------------------------------------------------------------
   function renderAdmin() {
-    var tabs = [['children','아이'],['tasks','할 일'],['rewards','보상'],['data','데이터']];
+    var tabs = [['homework','숙제'],['children','아이'],['tasks','할 일'],['rewards','보상'],['data','데이터']];
 
     screen().innerHTML = '' +
       '<header class="admintop">' +
@@ -42,10 +43,46 @@
   }
 
   function panelHTML() {
+    if (tab === 'homework') return homeworkPanel();
     if (tab === 'children') return childrenPanel();
     if (tab === 'tasks') return tasksPanel();
     if (tab === 'rewards') return rewardsPanel();
     return dataPanel();
+  }
+
+  // ------------------------------------------------------------
+  // 숙제 탭 — 부모가 매일 여기서 오늘 숙제를 입력한다
+  // ------------------------------------------------------------
+  function homeworkPanel() {
+    var c = store.children()[0];
+    if (!c) return '<p class="empty">아이 탭에서 아이를 먼저 추가하세요.</p>';
+
+    var today = store.dateKey();
+    // 완료 여부와 상관없이 전부 가져온 뒤 안 한 것만 골라, 밀린 순서(오래된 것부터)로 보여준다
+    var list = store.homeworkOf(c.id)
+      .filter(function (w) { return !w.doneOn; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+
+    var rows = list.map(function (w) {
+      var late = w.date < today;
+      return '' +
+        '<div class="hwrow' + (late ? ' is-late' : '') + '">' +
+          '<span class="hwrow__date">' + esc(w.date.slice(5)) + '</span>' +
+          '<span class="hwrow__emoji">' + esc(w.emoji) + '</span>' +
+          '<span class="hwrow__label">' + esc(w.label) + '</span>' +
+          (late ? '<button class="mini" data-act="hw-today" data-id="' + esc(w.id) + '">오늘로</button>' : '') +
+          '<button class="mini mini--warn" data-act="hw-del" data-id="' + esc(w.id) + '">지움</button>' +
+        '</div>';
+    }).join('');
+
+    return '' +
+      '<div class="row"><label>날짜</label>' +
+        '<input type="date" id="hw-date" value="' + esc(today) + '"></div>' +
+      '<div class="row"><label>숙제</label>' +
+        '<input type="text" id="hw-label" placeholder="예: 수학 문제집 1~5쪽"></div>' +
+      '<button class="btn btn--add" data-act="hw-add">추가</button>' +
+      '<h3 class="sect">아직 안 한 숙제 (' + list.length + '개)</h3>' +
+      (rows || '<p class="empty">없습니다.</p>');
   }
 
   // ------------------------------------------------------------
@@ -408,6 +445,20 @@
   // ------------------------------------------------------------
   function handle(act, id) {
     if (act === 'tab') { tab = id; renderAdmin(); return true; }
+    if (act === 'hw-add') {
+      var label = ($('#hw-label') || {}).value;
+      var date = ($('#hw-date') || {}).value;
+      if (!label || !label.trim()) { ui.toast('숙제 내용을 적어주세요.'); return true; }
+      store.addHomework({
+        childId: store.children()[0].id,
+        label: label.trim(),
+        date: date || store.dateKey()
+      });
+      renderAdmin();
+      return true;
+    }
+    if (act === 'hw-del') { store.removeHomework(id); renderAdmin(); return true; }
+    if (act === 'hw-today') { store.moveHomework(id, store.dateKey()); renderAdmin(); return true; }
     if (act === 'new-child') { childForm(null); return true; }
     if (act === 'edit-child') { childForm(store.getChild(id)); return true; }
     if (act === 'new-task') { taskForm(null, id); return true; }
@@ -431,5 +482,5 @@
     return false;
   }
 
-  global.KB.admin = { renderAdmin: renderAdmin, handle: handle, resetTab: function () { tab = 'children'; } };
+  global.KB.admin = { renderAdmin: renderAdmin, handle: handle, resetTab: function () { tab = 'homework'; } };
 })(window);

@@ -314,6 +314,37 @@ test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {
   expect(await page.evaluate(() => KB.app.current().view)).toBe('admin');
 });
 
+test('[10] 부모 화면에서 숙제를 넣으면 아이 화면에 즉시 반영된다', async () => {
+  await page.evaluate(() => { KB.store.all().homework = []; KB.app.go('admin'); });
+  await page.waitForSelector('[data-act="tab"]');
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('#hw-label');
+
+  await page.fill('#hw-label', '국어 독후감 1쪽');
+  await page.locator('[data-act="hw-add"]').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.hwrow')).toContainText('국어 독후감 1쪽');
+
+  await page.locator('[data-act="home"]').first().click();
+  await page.waitForSelector('.hw');
+  const labels = await page.locator('.hw__label').allInnerTexts();
+  expect(labels, '새로고침 없이 아이 화면에 보인다').toContain('국어 독후감 1쪽');
+});
+
+test('[11] 부모 화면에서는 밀린 숙제 전부가 보인다', async () => {
+  await page.evaluate(() => {
+    const S = KB.store, past = S.dateKey(new Date(Date.now() - 2 * 86400000));
+    for (let i = 0; i < 6; i++) {
+      S.addHomework({ childId: 'c1', emoji: '📗', label: '밀린 ' + i, date: past });
+    }
+    KB.app.go('admin');
+  });
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('.hwrow');
+  // 아이 화면은 4개까지지만 부모는 전부 봐야 판단할 수 있다
+  expect(await page.locator('.hwrow').count()).toBeGreaterThanOrEqual(7);
+});
+
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
     raw: localStorage.getItem('kidboard.v2'),
