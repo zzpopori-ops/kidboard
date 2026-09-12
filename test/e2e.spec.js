@@ -430,6 +430,28 @@ test('[14] 보너스는 기록으로 남고 별 계산에 들어간다', async (
   expect(memo, '왜 줬는지가 남아야 나중에 설명이 된다').toBe('할머니 도와드림');
 });
 
+test('[15] 부모 화면 — 별 0개에서 −를 눌러도 빚이 남지 않는다', async () => {
+  // 다른 테스트가 남긴 별에 기대지 않도록 별에 영향을 주는 상태를 직접 초기화한다
+  await page.evaluate(() => {
+    const S = KB.store;
+    S.all().bonuses = []; S.all().redemptions = [];
+    S.all().homework = []; S.all().progress = {};
+    S.save(); // 이 테스트는 star-minus 가 아무것도 저장하지 않는 경우를 확인하므로,
+              // 리셋 자체는 반드시 저장해 둬야 뒤 테스트(새로고침 유지)가 낡은 값을 안 물려받는다
+    KB.app.go('admin');
+  });
+  await page.locator('[data-act="tab"][data-id="children"]').click();
+  await page.waitForSelector('[data-act="star-minus"]');
+
+  const before = await page.evaluate(() => KB.store.all().bonuses.length);
+  await page.locator('[data-act="star-minus"]').first().click();
+
+  await expect(page.locator('#toast')).toContainText('별이 없어요.');
+  const after = await page.evaluate(() => KB.store.all().bonuses.length);
+  expect(after, '0개에서 깎으면 기록이 생기면 안 된다').toBe(before);
+  expect(await page.evaluate(() => KB.store.starsOf('c1')), '별은 여전히 0').toBe(0);
+});
+
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
     raw: localStorage.getItem('kidboard.v2'),

@@ -226,3 +226,36 @@ S.factoryReset();
 
   assert(S.starsOf('c1') === 0, '수정 후에도 별은 여전히 기록에서 계산된다');
 }
+
+console.log('[19] 보너스 차감은 있는 만큼만 — 화면에 안 보이는 빚을 만들지 않는다');
+S.factoryReset();
+{
+  // 별 2개를 만들어 둔다 (계산값이 정확히 2가 되게)
+  S.addBonus('c1', 2, '테스트 시드');
+  assert(S.starsOf('c1') === 2, '시드: 별 2개');
+
+  // 5개를 깎으려 하면 실제로는 2개만 깎였어야 한다
+  const rec = S.addBonus('c1', -5, '부모 차감');
+  assert(S.starsOf('c1') === 0, '있는 것보다 많이 깎아도 0 밑으로는 안 내려간다');
+  assert(rec && rec.amount === -2, '기록된 양은 요청한 -5 가 아니라 실제로 깎인 -2 여야 한다');
+
+  console.log('  [19-a] 숨은 빚이 없어야 한다: 과다 차감 뒤에 번 별은 즉시 화면에 보인다');
+  S.addBonus('c1', 3, '할머니 도와드림');
+  assert(S.starsOf('c1') === 3, '과다 차감이 빚으로 남아있으면 3 이 아니라 0 이나 그 아래로 나온다');
+
+  console.log('  [19-b] 0개에서 더 깎으면 기록 자체를 만들지 않는다');
+  S.factoryReset();
+  const before = S.all().bonuses.length;
+  const zeroRec = S.addBonus('c1', -1, '부모 차감');
+  assert(zeroRec === null, '0개에서 깎으면 아무것도 적용되지 않았다는 뜻으로 null 을 돌려준다');
+  assert(S.all().bonuses.length === before, '기록 개수가 늘면 안 된다');
+  assert(S.starsOf('c1') === 0, '여전히 0');
+
+  console.log('  [19-c] 예산 안에서의 정상 차감은 그대로 동작하고 메모도 남는다');
+  S.factoryReset();
+  S.addBonus('c1', 5, '테스트 시드');
+  const normal = S.addBonus('c1', -2, '부모 차감');
+  assert(S.starsOf('c1') === 3, '정상 범위 안 차감은 그대로 반영된다');
+  assert(normal.amount === -2, '요청한 만큼 그대로 기록된다 (클램프가 필요 없던 경우)');
+  assert(normal.memo === '부모 차감', '메모도 그대로 남는다');
+}

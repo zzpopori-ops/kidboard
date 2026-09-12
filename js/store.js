@@ -269,8 +269,17 @@
   }
 
   function addBonus(childId, amount, memo) {
+    var applied = amount;
+    if (amount < 0) {
+      // 있는 것보다 많이 깎지 않는다. 초과분을 그냥 기록해 버리면 합계만 0으로
+      // 가려질 뿐 빚(음수 기록)은 그대로 남아, 나중에 별을 벌어도 그 빚부터
+      // 갚느라 화면에 안 보이는 채로 사라진다 — 그게 이 클램프의 이유다.
+      var have = starsOf(childId);
+      applied = Math.max(amount, -have);
+      if (applied === 0) return null; // 이미 0이면 적용할 것이 없다 — 기록도 만들지 않는다
+    }
     var item = {
-      id: uid('b'), childId: childId, amount: amount,
+      id: uid('b'), childId: childId, amount: applied,
       memo: memo || '', at: new Date().toISOString()
     };
     data.bonuses.unshift(item);

@@ -494,7 +494,14 @@
     }
     // 별 가감도 보너스 기록으로 남겨야 나중에 '왜 줬는지' 를 설명할 수 있다
     if (act === 'star-plus')  { store.addBonus(id, 1, '부모 보너스');  renderAdmin(); return true; }
-    if (act === 'star-minus') { store.addBonus(id, -1, '부모 차감'); renderAdmin(); return true; }
+    if (act === 'star-minus') {
+      // 0개인 아이에게서 더 깎으면 store 는 기록을 만들지 않고 null 을 돌려준다.
+      // 버튼을 죽은 것처럼 두지 않고, 왜 안 됐는지 토스트로 알려준다.
+      var applied = store.addBonus(id, -1, '부모 차감');
+      if (!applied) { ui.toast('별이 없어요.'); return true; }
+      renderAdmin();
+      return true;
+    }
     if (act === 'reset-today') {
       var c = store.getChild(id);
       ui.confirmBox((c ? c.name : '') + ' 오늘 초기화', '오늘 체크와 오늘 받은 별을 되돌립니다.', '초기화').then(function (yes) {
