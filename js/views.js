@@ -43,7 +43,7 @@
         '<p class="top__date">' + esc(dateLine) + '</p>' +
       '</header>' +
       '<section class="picks">' + (cards || '<p class="empty">부모 설정에서 아이를 추가하세요. 제목을 1.5초간 누르면 설정으로 들어갑니다.</p>') + '</section>' +
-      '<footer class="hint">제목을 길게 누르면 부모 설정</footer>';
+      '<footer class="hint">제목을 1.5초간 누르면 부모 설정</footer>';
 
     ui.longPress($('#brandHold'), 1500, function () {
       ui.askPin('부모 설정').then(function (ok) {
