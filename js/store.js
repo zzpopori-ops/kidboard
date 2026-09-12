@@ -145,6 +145,25 @@
 
   function isOverdue(w, key) { return w.date < (key || dateKey()); }
 
+  /**
+   * 아이 화면에 보여줄 숙제 선택 (fix round 1).
+   * 오늘 것부터 채우고, 남는 자리에만 밀린 것을 오래된 순으로 채운다.
+   * "오래된 순으로 4개" 였던 원래 규칙은 밀린 게 쌓이면 오늘 숙제가
+   * 상한 안에 아예 못 들어가는 사고를 냈다 — 화면을 실제로 그려보고서야
+   * 드러났다. homeworkDue 는 부모 화면(상한 없음)이 그대로 써야 하므로
+   * 손대지 않고, 이 함수를 따로 둔다.
+   */
+  function homeworkForKid(childId, key, limit) {
+    var k = key || dateKey();
+    var list = homeworkOf(childId).filter(function (w) { return !w.doneOn && w.date <= k; });
+    var today = list.filter(function (w) { return w.date === k; });
+    var overdue = list
+      .filter(function (w) { return w.date < k; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var ordered = today.concat(overdue);
+    return limit ? ordered.slice(0, limit) : ordered;
+  }
+
   function doneIds(childId, key) {
     var byDate = data.progress[childId];
     var k = key || dateKey();
@@ -330,7 +349,7 @@
     rewards: rewards, templates: templates,
     habits: habits, habitsFor: habitsFor, isHabitDone: isHabitDone,
     doneIds: doneIds, progressOf: progressOf, toggleHabit: toggleHabit,
-    homeworkOf: homeworkOf, homeworkDue: homeworkDue, isOverdue: isOverdue,
+    homeworkOf: homeworkOf, homeworkDue: homeworkDue, homeworkForKid: homeworkForKid, isOverdue: isOverdue,
     addHomework: addHomework, setHomeworkDone: setHomeworkDone,
     moveHomework: moveHomework, removeHomework: removeHomework,
     addTemplate: addTemplate, removeTemplate: removeTemplate,

@@ -35,7 +35,7 @@
 
     // 오래 밀린 것부터 최대 4개까지만 보여준다. 나머지는 개수도 안 보인다 —
     // "대기 3개" 를 띄우면 끝이 보이게 하려던 의도를 스스로 깨기 때문이다.
-    var due = store.homeworkDue(c.id, key, store.VISIBLE);
+    var due = store.homeworkForKid(c.id, key, store.VISIBLE);
     var cards = due.map(function (w) {
       return '' +
         '<button class="hw" data-act="homework" data-id="' + esc(w.id) + '">' +

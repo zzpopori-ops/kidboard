@@ -94,7 +94,10 @@ test('[3] 습관을 누르면 별이 오르고 다시 누르면 회수된다', a
   expect(await stars(), '5회 토글 후에도 1 고정').toBe(1);
 });
 
-test('[4] 숙제는 큰 카드로 보이고 밀린 것이 먼저 온다', async () => {
+test('[4] 숙제는 큰 카드로 보이고 밀린 것엔 표시가 붙는다', async () => {
+  // fix round 1 이전에는 "밀린 것이 맨 앞" 이었다. 오늘 것을 먼저 채우는
+  // 규칙으로 바뀌면서 화면 순서도 오늘 것이 먼저다 — 실제 화면에서
+  // 밀린 게 많으면 오늘 숙제가 아예 안 보이던 사고를 고친 결과다.
   await page.evaluate(() => {
     const S = KB.store;
     const today = S.dateKey();
@@ -105,7 +108,7 @@ test('[4] 숙제는 큰 카드로 보이고 밀린 것이 먼저 온다', async 
   });
   await page.waitForSelector('.hw');
   const labels = await page.locator('.hw__label').allInnerTexts();
-  expect(labels[0], '오래 밀린 것이 맨 앞').toBe('사흘 전 그림일기');
+  expect(labels[0], '오늘 것이 맨 앞').toBe('오늘치 수학');
   await expect(page.locator('.hw', { hasText: '사흘 전 그림일기' }).locator('.hw__overdue'))
     .toHaveCount(1);
 });
@@ -155,6 +158,28 @@ test('[7] 날짜가 바뀌어도 숙제는 사라지지 않고 이월된다', as
   });
   expect(r.tomorrow, '내일도 그대로 남는다 (습관과 다른 점)').toBe(r.today);
   expect(r.stars, '모은 별은 유지된다').toBeGreaterThan(0);
+});
+
+test('[7b] fix1: 밀린 게 많아도 오늘 숙제는 반드시 보인다', async () => {
+  // 실제 화면 캡처로 발견된 사고: 밀린 게 많으면(9개) 오늘 것(2개)이
+  // 4개 상한 안에 아예 못 들어가고 밀려났었다. 오늘 것부터 채우는지 확인한다.
+  await page.evaluate(() => {
+    const S = KB.store;
+    S.factoryReset();
+    const today = S.dateKey();
+    S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘 숙제 A', date: today });
+    S.addHomework({ childId: 'c1', emoji: '📗', label: '오늘 숙제 B', date: today });
+    for (let i = 5; i <= 13; i++) {
+      const d = S.dateKey(new Date(Date.now() - i * 86400000));
+      S.addHomework({ childId: 'c1', emoji: '📙', label: '밀린 숙제 ' + i, date: d });
+    }
+    KB.app.render();
+  });
+  await page.waitForSelector('.hw');
+  expect(await page.locator('.hw').count(), '화면에는 4개까지만').toBe(4);
+  const labels = await page.locator('.hw__label').allInnerTexts();
+  expect(labels.includes('오늘 숙제 A'), '오늘 숙제 A가 보여야 한다').toBe(true);
+  expect(labels.includes('오늘 숙제 B'), '오늘 숙제 B가 보여야 한다').toBe(true);
 });
 
 test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {

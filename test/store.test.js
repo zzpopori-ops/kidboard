@@ -119,3 +119,83 @@ assert(threw, '형식이 틀린 백업은 거부');
 
 console.log('[15] 영속성');
 assert(JSON.parse(mem['kidboard.v2']).version === 2, 'version 2 로 저장된다');
+
+// ------------------------------------------------------------
+// [16]/[17] fix round 1 — 실제 화면을 보고 나서 바뀐 규칙.
+// "오래된 순으로 4개" 였던 원래 규칙은, 밀린 게 많으면 오늘 숙제가
+// 아예 안 보이는 사고를 냈다. 오늘 것부터 채우고 남는 자리만
+// 밀린 것(가장 오래된 것부터)에게 준다. homeworkDue 는 그대로 둔다 —
+// 부모 화면은 밀린 총량을 봐야 해서 상한이 없는 전체·오래된순이 맞다.
+// ------------------------------------------------------------
+function daysAgo(key, n) {
+  return S.dateKey(new Date(new Date(key + 'T00:00:00').getTime() - n * 86400000));
+}
+
+console.log('[16] homeworkForKid — 오늘 것을 먼저 채우고 남는 자리에 밀린 것');
+
+// today 2 + overdue 9 -> 2 today + 2 overdue(가장 오래된 것부터)
+S.factoryReset();
+{
+  const K = '2026-11-15';
+  S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘 수학', date: K });
+  S.addHomework({ childId: 'c1', emoji: '📗', label: '오늘 받아쓰기', date: K });
+  for (let i = 1; i <= 9; i++) {
+    S.addHomework({ childId: 'c1', emoji: '📙', label: '밀린것' + i, date: daysAgo(K, i) });
+  }
+  const picked = S.homeworkForKid('c1', K, 4);
+  const labels = picked.map(w => w.label);
+  assert(picked.length === 4, 'today 2 + overdue 9 -> 4개');
+  assert(labels.includes('오늘 수학') && labels.includes('오늘 받아쓰기'), '오늘 것 2개는 반드시 보인다');
+  assert(labels.includes('밀린것9') && labels.includes('밀린것8'), '남는 2자리는 가장 오래 밀린 것부터');
+  assert(!labels.includes('밀린것1'), '1일 전처럼 자리를 못 받은 밀린 것은 안 보인다');
+}
+
+// today 4 + overdue 9 -> 오늘 것만 4개, 밀린 건 전부 대기
+// 이게 바로 캡처된 사고 그 자체다: 예전 규칙이면 여기서 오늘 것이
+// 하나도 안 보이고 9일 전 것만 보였을 상황이다.
+S.factoryReset();
+{
+  const K = '2026-11-15';
+  for (let i = 0; i < 4; i++) S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘' + i, date: K });
+  for (let i = 1; i <= 9; i++) S.addHomework({ childId: 'c1', emoji: '📙', label: '밀린것' + i, date: daysAgo(K, i) });
+  const picked = S.homeworkForKid('c1', K, 4);
+  const labels = picked.map(w => w.label);
+  assert(picked.length === 4, 'today 4 + overdue 9 -> 4개');
+  assert(picked.every(w => w.date === K), '오늘 것 4개로 자리가 차면 밀린 건 전부 대기');
+  assert(labels.includes('오늘0'), '오늘 것은 반드시 보인다');
+  assert(!labels.includes('밀린것9'), '9일 전처럼 아주 오래 밀린 것도 이번엔 자리를 못 받는다');
+}
+
+// today 0 + overdue 9 -> 가장 오래 밀린 4개
+S.factoryReset();
+{
+  const K = '2026-11-15';
+  for (let i = 1; i <= 9; i++) S.addHomework({ childId: 'c1', emoji: '📙', label: '밀린것' + i, date: daysAgo(K, i) });
+  const picked = S.homeworkForKid('c1', K, 4);
+  const labels = picked.map(w => w.label);
+  assert(picked.length === 4, 'today 0 + overdue 9 -> 4개');
+  assert(picked.every(w => w.date < K), '오늘 것이 없으면 전부 밀린 것');
+  ['밀린것9', '밀린것8', '밀린것7', '밀린것6'].forEach(l =>
+    assert(labels.includes(l), '가장 오래 밀린 4개(6~9일 전)가 온다: ' + l));
+}
+
+// today 6 + overdue 0 -> 오늘 것 중 4개(상한은 그대로)
+S.factoryReset();
+{
+  const K = '2026-11-15';
+  for (let i = 0; i < 6; i++) S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘' + i, date: K });
+  const picked = S.homeworkForKid('c1', K, 4);
+  assert(picked.length === 4, 'today 6 + overdue 0 -> 상한 4는 그대로');
+  assert(picked.every(w => w.date === K), '전부 오늘 것 중에서 고른다');
+}
+
+console.log('[17] homeworkDue 는 그대로 — 상한 없이 전부, 오래된 순 (부모 화면용)');
+S.factoryReset();
+{
+  const K = '2026-11-15';
+  S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘', date: K });
+  S.addHomework({ childId: 'c1', emoji: '📙', label: '밀림', date: daysAgo(K, 3) });
+  const list = S.homeworkDue('c1', K);
+  assert(list.length === 2, 'homeworkDue 는 상한 없이 전부');
+  assert(list[0].label === '밀림', 'homeworkDue 는 여전히 오래된 순으로 정렬한다 (안 바뀜)');
+}
