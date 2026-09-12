@@ -259,3 +259,47 @@ S.factoryReset();
   assert(normal.amount === -2, '요청한 만큼 그대로 기록된다 (클램프가 필요 없던 경우)');
   assert(normal.memo === '부모 차감', '메모도 그대로 남는다');
 }
+
+console.log('[20] getHabit — id로 습관 하나 찾기 (getChild와 같은 모양)');
+S.factoryReset();
+{
+  const h = S.habits('c1')[0];
+  assert(S.getHabit(h.id) && S.getHabit(h.id).id === h.id, '있는 id면 그 습관을 돌려준다');
+  assert(S.getHabit('no-such-id') === null, '없는 id면 null');
+}
+
+console.log('[21] resetToday — 오늘 체크와 오늘 끝낸 숙제만 되돌린다');
+S.factoryReset();
+{
+  const today = S.dateKey();
+  const yday = daysAgo(today, 1);
+
+  // 오늘 습관 체크 + 오늘 끝낸 숙제 + 다른 날 숙제 + 보너스/교환 기록까지 섞어 둔다
+  const h = S.habits('c1')[0];
+  S.toggleHabit('c1', h.id, today);
+  const hwToday = S.addHomework({ childId: 'c1', label: '오늘 숙제', date: today });
+  S.setHomeworkDone(hwToday.id, today);
+  const hwYday = S.addHomework({ childId: 'c1', label: '어제 숙제', date: yday });
+  S.setHomeworkDone(hwYday.id, yday);
+  const hwPending = S.addHomework({ childId: 'c1', label: '안 한 숙제', date: today });
+  S.addBonus('c1', 3, '테스트 보너스');
+  S.redeem('c1', S.rewards()[0].id);
+
+  const starsBefore = S.starsOf('c1');
+  const bonusesBefore = S.all().bonuses.length;
+  const redemptionsBefore = S.all().redemptions.length;
+
+  S.resetToday('c1');
+
+  assert(S.doneIds('c1', today).length === 0, '오늘 습관 체크가 지워진다');
+  assert(S.homeworkOf('c1').find(w => w.id === hwToday.id).doneOn === null, '오늘 끝낸 숙제는 다시 미완료');
+  assert(S.homeworkOf('c1').find(w => w.id === hwYday.id).doneOn === yday, '어제 끝낸 숙제는 그대로 남는다');
+  assert(S.homeworkOf('c1').find(w => w.id === hwPending.id).doneOn === null, '원래 안 한 숙제는 그대로');
+  assert(S.all().bonuses.length === bonusesBefore, '보너스 기록은 건드리지 않는다');
+  assert(S.all().redemptions.length === redemptionsBefore, '교환 기록도 건드리지 않는다');
+  assert(S.starsOf('c1') < starsBefore, '되돌린 만큼 계산되는 별 총합이 줄어든다');
+
+  const persisted = JSON.parse(mem['kidboard.v2']);
+  assert(!(persisted.progress.c1 && persisted.progress.c1[today] && persisted.progress.c1[today].length),
+         '저장소에도 오늘 체크가 남아있으면 안 된다');
+}

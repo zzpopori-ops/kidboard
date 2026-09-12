@@ -117,6 +117,14 @@
     return data.habits.filter(function (h) { return h.childId === childId; });
   }
 
+  /** getChild 와 같은 모양 — id로 습관 하나. 없으면 null */
+  function getHabit(id) {
+    for (var i = 0; i < data.habits.length; i++) {
+      if (data.habits[i].id === id) return data.habits[i];
+    }
+    return null;
+  }
+
   /** 그 날 요일에 해당하는 습관만 */
   function habitsFor(childId, key) {
     var wd = weekdayOf(key || dateKey());
@@ -256,6 +264,21 @@
     return { done: done };
   }
 
+  /**
+   * "오늘 초기화" — 오늘 체크한 습관과 오늘 끝낸 숙제만 되돌린다.
+   * 별은 저장하지 않고 매번 계산하므로(starsOf) 따로 손대지 않아도
+   * 이 두 기록을 지우는 순간 저절로 줄어든다. 보너스/교환은 "오늘의
+   * 체크"가 아니라 별도 장부라서 여기서 건드리지 않는다.
+   */
+  function resetToday(childId) {
+    var k = dateKey();
+    if (data.progress[childId]) delete data.progress[childId][k];
+    data.homework.forEach(function (w) {
+      if (w.childId === childId && w.doneOn === k) w.doneOn = null;
+    });
+    save();
+  }
+
   function addTemplate(t) {
     var item = { id: t.id || uid('tpl'), emoji: t.emoji || '📘', text: t.text };
     data.templates.push(item);
@@ -356,8 +379,8 @@
     load: load, save: save, dateKey: dateKey, uid: uid,
     all: all, children: children, getChild: getChild,
     rewards: rewards, templates: templates,
-    habits: habits, habitsFor: habitsFor, isHabitDone: isHabitDone,
-    doneIds: doneIds, progressOf: progressOf, toggleHabit: toggleHabit,
+    habits: habits, habitsFor: habitsFor, getHabit: getHabit, isHabitDone: isHabitDone,
+    doneIds: doneIds, progressOf: progressOf, toggleHabit: toggleHabit, resetToday: resetToday,
     homeworkOf: homeworkOf, homeworkDue: homeworkDue, homeworkForKid: homeworkForKid, isOverdue: isOverdue,
     addHomework: addHomework, setHomeworkDone: setHomeworkDone,
     moveHomework: moveHomework, removeHomework: removeHomework,

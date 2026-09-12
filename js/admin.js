@@ -180,7 +180,9 @@
     if (!kids.length) return '<p class="empty">먼저 아이를 추가하세요.</p>';
 
     return kids.map(function (c) {
-      var list = store.tasksOf(c.id);
+      // habitsFor 는 그 날 요일에 맞는 것만 거르는데, 여기는 부모가 전체를
+      // 관리하는 화면이라 요일과 상관없이 다 보여야 한다 — habits 를 쓴다.
+      var list = store.habits(c.id);
       var rows = list.map(function (t) {
         return '' +
           '<div class="row">' +
@@ -263,7 +265,7 @@
     $('[data-cancel]', m).onclick = ui.closeModal;
     if (task) {
       $('[data-del]', m).onclick = function () {
-        store.remove('tasks', t.id);
+        store.remove('habits', t.id);
         ui.closeModal(); renderAdmin(); ui.toast('삭제했습니다.');
       };
     }
@@ -273,7 +275,7 @@
       var days = $$('#f-days .chip--day.is-on', m).map(function (d) { return Number(d.getAttribute('data-v')); });
       if (!days.length) { ui.toast('요일을 하나 이상 고르세요.'); return; }
 
-      store.upsert('tasks', {
+      store.upsert('habits', {
         id: t.id || undefined,
         childId: $('#f-child', m).value,
         label: label,
@@ -484,7 +486,7 @@
     if (act === 'new-child') { childForm(null); return true; }
     if (act === 'edit-child') { childForm(store.getChild(id)); return true; }
     if (act === 'new-task') { taskForm(null, id); return true; }
-    if (act === 'edit-task') { taskForm(store.getTask(id)); return true; }
+    if (act === 'edit-task') { taskForm(store.getHabit(id)); return true; }
     if (act === 'new-reward') { rewardForm(null); return true; }
     if (act === 'edit-reward') {
       var r = null;

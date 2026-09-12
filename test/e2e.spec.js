@@ -489,6 +489,46 @@ test('[X] 아이 이름에 태그를 넣어도 실행되지 않는다', async ()
   expect(imgs, 'esc() 를 통과하면 태그가 아니라 글자로 남는다').toBe(0);
 });
 
+// ------------------------------------------------------------
+// [16] 회귀 방지 — v2 마이그레이션 때 tasks 탭이 store.tasksOf 등
+// 사라진 v1 함수를 계속 부르는 바람에 탭을 열자마자 pageerror 로
+// 죽었었다. 이 파일의 다른 테스트는 전부 admin 안에서도 homework/
+// children 탭만 거쳐가서 27개가 다 통과하는 동안에도 이 버그가
+// 가려져 있었다 — 그래서 admin 탭 전부를 한 번씩 실제로 열어보는
+// 테스트가 따로 있어야 한다.
+// ------------------------------------------------------------
+test('[16] 부모 화면 — 모든 탭이 에러 없이 열리고 뭔가를 그린다', async () => {
+  const errors = [];
+  const onPageError = e => errors.push('pageerror: ' + e.message);
+  const onConsole = m => { if (m.type() === 'error') errors.push('console.error: ' + m.text()); };
+  page.on('pageerror', onPageError);
+  page.on('console', onConsole);
+
+  try {
+    await page.evaluate(() => {
+      // 이 탭이 뭔가 보여줄 게 있도록 아이가 최소 1명은 있게 만든다
+      if (!KB.store.children().length) {
+        KB.store.upsert('children', { name: '테스트', emoji: '🐻', color: '#3D7EA6' }, 'c');
+      }
+      KB.app.go('admin');
+    });
+    await page.waitForSelector('[data-act="tab"]');
+
+    const tabs = ['homework', 'children', 'tasks', 'rewards', 'data'];
+    for (const id of tabs) {
+      await page.locator('[data-act="tab"][data-id="' + id + '"]').click();
+      await page.waitForTimeout(150);
+      const html = await page.locator('.panel').innerHTML();
+      expect(html.trim().length, `[${id}] 탭이 빈 화면이면 안 된다`).toBeGreaterThan(0);
+    }
+  } finally {
+    page.off('pageerror', onPageError);
+    page.off('console', onConsole);
+  }
+
+  expect(errors, errors.join(' | ')).toEqual([]);
+});
+
 test('[E] 콘솔 에러가 하나도 없다', async () => {
   expect(consoleErrors, consoleErrors.join(' | ')).toEqual([]);
 });
