@@ -203,7 +203,85 @@ test('[8] 숙제와 습관을 다 끝내면 축하 문구가 뜬다', async () =
   await expect(page.locator('#screen')).toContainText('오늘 할 일 전부 끝!');
 });
 
-test('[9] 별 병이 별 개수에 따라 차오른다', async () => {
+test('[8b] 습관도 숙제도 없는 날은 축하하지 않는다', async () => {
+  // 새로 만든 아이나 그날 할 게 아예 없는 날까지 "전부 끝"으로 치면
+  // 아무것도 안 했는데 축하를 받는 꼴이다. habits/homework 를 모두 비워
+  // 진짜 "빈 하루" 를 재현한다.
+  const savedHabits = await page.evaluate(() => {
+    const S = KB.store, U = KB.ui;
+    const today = S.dateKey();
+    const saved = S.all().habits.slice();
+    S.all().habits = S.all().habits.filter(h => h.childId !== 'c1');
+    S.all().homework = [];
+    let beeped = false;
+    const orig = U.beep;
+    U.beep = function () { beeped = true; return orig.apply(this, arguments); };
+    KB.app.render();
+    U.beep = orig;
+    window.__beeped = beeped;
+    return saved;
+  });
+  await page.waitForSelector('#screen');
+  await expect(page.locator('#screen')).not.toContainText('오늘 할 일 전부 끝!');
+  await expect(page.locator('#screen')).toContainText('오늘 숙제가 없어요');
+  expect(await page.evaluate(() => window.__beeped), '할 일이 없으면 축하음도 없다').toBe(false);
+
+  // 뒤 테스트들이 습관 칩을 다시 기대할 수 있으니 원상복구한다.
+  await page.evaluate((saved) => { KB.store.all().habits = saved; }, savedHabits);
+});
+
+test('[8c] 습관이 0개여도 숙제만 다 끝내면 축하 문구가 뜬다', async () => {
+  // finding2 의 "둘 중 하나는 있어야" 조건 — habits 경로가 아니라
+  // homework 경로만으로도 all-done 이 성립하는지 별도로 확인한다.
+  const savedHabits = await page.evaluate(() => {
+    const S = KB.store;
+    const today = S.dateKey();
+    const saved = S.all().habits.slice();
+    S.all().habits = S.all().habits.filter(h => h.childId !== 'c1');
+    S.all().homework = [];
+    S.addHomework({ childId: 'c1', emoji: '📕', label: '숙제A', date: today });
+    S.addHomework({ childId: 'c1', emoji: '📗', label: '숙제B', date: today });
+    S.homeworkOf('c1').forEach(w => S.setHomeworkDone(w.id, today));
+    KB.app.render();
+    return saved;
+  });
+  await expect(page.locator('#screen')).toContainText('오늘 할 일 전부 끝!');
+  await page.evaluate((saved) => { KB.store.all().habits = saved; }, savedHabits);
+});
+
+test('[8d] 완료 상태로 여러 번 다시 그려도 축하음은 하루 한 번만', async () => {
+  // 습관 토글이나 자정 감시 타이머가 all-done 인 화면을 다시 그릴 때마다
+  // ui.beep 를 부르면 안 된다 — 하루 한 번만 울려야 한다.
+  const calls = await page.evaluate(() => {
+    const S = KB.store, U = KB.ui;
+    const today = S.dateKey();
+    S.all().homework = [];
+    S.addHomework({ childId: 'c1', emoji: '📕', label: '반복렌더 숙제', date: today });
+    S.homeworkOf('c1').forEach(w => S.setHomeworkDone(w.id, today));
+    S.habitsFor('c1', today).forEach(h => {
+      if (!S.isHabitDone('c1', h.id, today)) S.toggleHabit('c1', h.id);
+    });
+
+    let n = 0;
+    const orig = U.beep;
+    U.beep = function () { n++; return orig.apply(this, arguments); };
+    KB.app.render();
+    KB.app.render();
+    KB.app.render();
+    U.beep = orig;
+    return n;
+  });
+  expect(calls, '같은 날 다시 그려도 축하음은 최대 1번').toBeLessThanOrEqual(1);
+});
+
+test('[9b] 별 병이 별 개수에 따라 차오른다', async () => {
+  // [8] 이 남긴 별에 기대지 않도록, 이 테스트만으로 별 상태를 만든다.
+  // -g "9b" 로 단독 실행해도 통과해야 한다.
+  await page.evaluate(() => {
+    const S = KB.store;
+    S.addBonus('c1', 5, '테스트용 별');
+    KB.app.render();
+  });
   const h = await page.evaluate(() => {
     const r = document.querySelector('.jar rect[fill="#F6BD3B"]');
     return r ? +r.getAttribute('height') : -1;

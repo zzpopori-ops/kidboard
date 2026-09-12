@@ -12,6 +12,11 @@
 
   function screen() { return $('#screen'); }
 
+  // 습관 토글, 자정 감시(app.js 의 setInterval/visibilitychange) 등으로
+  // renderKid 가 같은 날 여러 번 다시 그려진다. 소리는 하루 한 번만 —
+  // 마지막으로 축하음을 울린 "아이|날짜" 를 기억해 중복을 막는다.
+  var lastCheeredFor = null;
+
   // ------------------------------------------------------------
   // 1) 아이 화면 (숙제는 Task 3, 지금은 습관만 보인다)
   // ------------------------------------------------------------
@@ -53,7 +58,11 @@
       : '<p class="empty">오늘 숙제가 없어요. 푹 쉬세요!</p>';
 
     var p = store.progressOf(c.id, key);
-    var allDone = (due.length === 0) && (p.total === 0 || p.done >= p.total);
+    // 할 일이 아예 없던 날(습관도 숙제도 0개)까지 "전부 끝"으로 치면
+    // 아무것도 안 했는데 축하를 받는 꼴이라, 오늘 뭔가 했다는 증거를 요구한다.
+    var didSomethingToday = p.total > 0 ||
+      store.homeworkOf(c.id).some(function (w) { return w.doneOn === key; });
+    var allDone = didSomethingToday && (due.length === 0) && (p.total === 0 || p.done >= p.total);
 
     // 병은 "오늘 얼마나 했나" 가 아니라 "다음 보상까지 얼마나 왔나" 를 보여준다.
     // 글을 못 읽어도 이해되는 지표라서 상점 가격 기준이 맞다.
@@ -79,7 +88,10 @@
         : '')
       + (allDone ? '<p class="cheer">오늘 할 일 전부 끝! 🎉</p>' : '');
 
-    if (allDone) ui.beep('reward');
+    if (allDone) {
+      var cheerKey = c.id + '|' + key;
+      if (lastCheeredFor !== cheerKey) { ui.beep('reward'); lastCheeredFor = cheerKey; }
+    }
 
     ui.longPress($('#brandHold'), 1500, function () {
       ui.askPin('부모 설정').then(function (ok) {
