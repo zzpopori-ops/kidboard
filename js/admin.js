@@ -103,7 +103,7 @@
           '<span class="row__emoji">' + esc(c.emoji) + '</span>' +
           '<span class="row__main">' +
             '<b>' + esc(c.name) + '</b>' +
-            '<small>' + (c.canRead ? '글자 화면' : '그림 화면') + ' · 오늘 ' + p.done + '/' + p.total + ' · 별 ' + c.stars + '개</small>' +
+            '<small>' + (c.canRead ? '글자 화면' : '그림 화면') + ' · 오늘 ' + p.done + '/' + p.total + ' · 별 ' + store.starsOf(c.id) + '개</small>' +
           '</span>' +
           '<span class="row__nudge">' +
             '<button class="mini" data-act="star-minus" data-id="' + esc(c.id) + '">−</button>' +
@@ -491,8 +491,9 @@
       rewardForm(r);
       return true;
     }
-    if (act === 'star-plus') { store.adjustStars(id, 1); renderAdmin(); return true; }
-    if (act === 'star-minus') { store.adjustStars(id, -1); renderAdmin(); return true; }
+    // 별 가감도 보너스 기록으로 남겨야 나중에 '왜 줬는지' 를 설명할 수 있다
+    if (act === 'star-plus')  { store.addBonus(id, 1, '부모 보너스');  renderAdmin(); return true; }
+    if (act === 'star-minus') { store.addBonus(id, -1, '부모 차감'); renderAdmin(); return true; }
     if (act === 'reset-today') {
       var c = store.getChild(id);
       ui.confirmBox((c ? c.name : '') + ' 오늘 초기화', '오늘 체크와 오늘 받은 별을 되돌립니다.', '초기화').then(function (yes) {

@@ -107,9 +107,12 @@
     var c = store.getChild(childId);
     if (!c) { screen().innerHTML = '<p class="empty">부모 설정에서 아이를 추가하세요.</p>'; return; }
 
+    // 별은 저장된 값이 아니라 계산값이므로, 목록을 순회하기 전에 딱 한 번만 구한다
+    var stars = store.starsOf(c.id);
+
     var items = store.rewards().map(function (r) {
-      var can = c.stars >= r.cost;
-      var need = r.cost - c.stars;
+      var can = stars >= r.cost;
+      var need = r.cost - stars;
       return '' +
         '<div class="shopitem' + (can ? ' is-ready' : '') + '">' +
           '<span class="shopitem__emoji">' + esc(r.emoji) + '</span>' +
@@ -118,7 +121,7 @@
           (can
             ? '<button class="btn btn--go" data-act="redeem" data-id="' + esc(r.id) + '">바꾸기</button>'
             : '<span class="shopitem__need">별 ' + need + '개 더</span>') +
-          '<span class="shopitem__bar"><i style="width:' + Math.min(100, Math.round(c.stars / r.cost * 100)) + '%"></i></span>' +
+          '<span class="shopitem__bar"><i style="width:' + Math.min(100, Math.round(stars / r.cost * 100)) + '%"></i></span>' +
         '</div>';
     }).join('');
 
@@ -127,7 +130,7 @@
         '<button class="iconbtn" data-act="open-kid" data-id="' + esc(c.id) + '" aria-label="할 일로">←</button>' +
         '<span class="kidtop__face">' + esc(c.emoji) + '</span>' +
         '<span class="kidtop__name">' + esc(c.name) + '의 별 상점</span>' +
-        '<span class="kidtop__total">⭐ ' + c.stars + '</span>' +
+        '<span class="kidtop__total">⭐ ' + stars + '</span>' +
       '</header>' +
       '<section class="shop">' + (items || '<p class="empty">부모 설정에서 보상을 추가하세요.</p>') + '</section>';
   }

@@ -385,6 +385,51 @@ test('[13b] 빈칸을 안 채우고 추가를 누르면 {} 가 그대로 아이 
   expect(afterFilled.length, '빈칸을 채우면 정상 추가된다').toBe(before + 1);
 });
 
+test('[13c] 상점 — 모자라면 "별 N개 더", 교환은 PIN을 통과해야 한다', async () => {
+  // 이 테스트만 단독으로 -g 실행해도 통과하도록, 별에 영향을 주는 상태를 직접 초기화한다
+  await page.evaluate(() => {
+    const S = KB.store;
+    S.all().bonuses = []; S.all().redemptions = [];
+    S.all().homework = []; S.all().progress = {};
+    KB.app.go('shop');
+  });
+  await page.waitForSelector('.shopitem');
+  const needs = await page.locator('.shopitem__need').allInnerTexts();
+  expect(needs.length, '별 0개면 전부 부족하다').toBeGreaterThan(0);
+  for (const n of needs) expect(n).toMatch(/별 \d+개 더/);
+
+  await page.evaluate(() => { KB.store.addBonus('c1', 100, '테스트'); KB.app.render(); });
+  const go = page.locator('[data-act="redeem"]').first();
+  const rid = await go.getAttribute('data-id');
+  const cost = await page.evaluate(
+    id => KB.store.all().rewards.find(r => r.id === id).cost, rid);
+
+  await go.click();
+  await page.waitForSelector('.keypad');
+  for (const k of ['9', '9', '9', '9']) await page.locator(`.key[data-k="${k}"]`).click();
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => KB.store.starsOf('c1')), '틀린 PIN 으로는 안 깎인다').toBe(100);
+
+  for (const k of ['1', '2', '3', '4']) await page.locator(`.key[data-k="${k}"]`).click();
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => KB.store.starsOf('c1'))).toBe(100 - cost);
+});
+
+test('[14] 보너스는 기록으로 남고 별 계산에 들어간다', async () => {
+  // 다른 테스트가 별에 남겨둔 상태에 기대지 않도록 직접 초기화한다
+  await page.evaluate(() => {
+    const S = KB.store;
+    S.all().bonuses = []; S.all().redemptions = [];
+    S.all().homework = []; S.all().progress = {};
+  });
+  const before = await page.evaluate(() => KB.store.starsOf('c1'));
+  await page.evaluate(() => KB.store.addBonus('c1', 3, '할머니 도와드림'));
+  const after = await page.evaluate(() => KB.store.starsOf('c1'));
+  expect(after).toBe(before + 3);
+  const memo = await page.evaluate(() => KB.store.all().bonuses[0].memo);
+  expect(memo, '왜 줬는지가 남아야 나중에 설명이 된다').toBe('할머니 도와드림');
+});
+
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
     raw: localStorage.getItem('kidboard.v2'),
