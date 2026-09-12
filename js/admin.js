@@ -75,9 +75,16 @@
         '</div>';
     }).join('');
 
+    // 템플릿을 눌러 문구를 채우고 숫자만 바꿔 넣게 한다 — 매일 같은 문구를 다시 치지 않도록
+    var tpls = store.templates().map(function (t) {
+      return '<button class="mini" data-act="tpl-use" data-id="' + esc(t.id) + '">' +
+               esc(t.emoji) + ' ' + esc(t.text) + '</button>';
+    }).join('');
+
     return '' +
       '<div class="row"><label>날짜</label>' +
         '<input type="date" id="hw-date" value="' + esc(today) + '"></div>' +
+      '<div class="row"><label>템플릿</label><div class="tpls">' + tpls + '</div></div>' +
       '<div class="row"><label>숙제</label>' +
         '<input type="text" id="hw-label" placeholder="예: 수학 문제집 1~5쪽"></div>' +
       '<button class="btn btn--add" data-act="hw-add">추가</button>' +
@@ -459,6 +466,18 @@
     }
     if (act === 'hw-del') { store.removeHomework(id); renderAdmin(); return true; }
     if (act === 'hw-today') { store.moveHomework(id, store.dateKey()); renderAdmin(); return true; }
+    if (act === 'tpl-use') {
+      var t = store.templates().filter(function (x) { return x.id === id; })[0];
+      var input = $('#hw-label');
+      if (t && input) {
+        input.value = t.text;
+        input.focus();
+        // 첫 빈칸 앞에 커서를 둔다. 숫자만 바꿔 넣으면 끝나게.
+        var at = t.text.indexOf('{}');
+        if (at >= 0) input.setSelectionRange(at, at + 2);
+      }
+      return true;
+    }
     if (act === 'new-child') { childForm(null); return true; }
     if (act === 'edit-child') { childForm(store.getChild(id)); return true; }
     if (act === 'new-task') { taskForm(null, id); return true; }

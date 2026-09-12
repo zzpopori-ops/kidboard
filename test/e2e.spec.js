@@ -345,6 +345,18 @@ test('[11] 부모 화면에서는 밀린 숙제 전부가 보인다', async () =
   expect(await page.locator('.hwrow').count()).toBeGreaterThanOrEqual(7);
 });
 
+test('[12] 템플릿을 누르면 입력칸이 채워지고 빈칸만 남는다', async () => {
+  // 다른 테스트가 화면을 어디에 남겨뒀는지에 기대지 않도록 직접 이동한다
+  await page.evaluate(() => KB.app.go('admin'));
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+
+  await page.locator('[data-act="tpl-use"]').first().click();
+  const v = await page.inputValue('#hw-label');
+  expect(v, '템플릿 문구가 입력칸에 들어간다').toContain('수학 문제집');
+  expect(v, '빈칸 표시가 남아 있다').toContain('{}');
+});
+
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
     raw: localStorage.getItem('kidboard.v2'),
