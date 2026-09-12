@@ -372,6 +372,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---------- 7. 모달 ---------- */
 /* hidden 속성은 UA 기본 스타일이라 아래 display:grid 에 밀린다. 명시적으로 눌러준다 */
+.modal[hidden] { display: none; }
 
 .modal {
   position: fixed;
