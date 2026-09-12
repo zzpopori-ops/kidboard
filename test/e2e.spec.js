@@ -182,6 +182,35 @@ test('[7b] fix1: 밀린 게 많아도 오늘 숙제는 반드시 보인다', asy
   expect(labels.includes('오늘 숙제 B'), '오늘 숙제 B가 보여야 한다').toBe(true);
 });
 
+test('[8] 숙제와 습관을 다 끝내면 축하 문구가 뜬다', async () => {
+  await page.evaluate(() => {
+    const S = KB.store, today = S.dateKey();
+    S.all().homework = [];                       // 밀린 것 정리
+    S.addHomework({ childId: 'c1', emoji: '📕', label: '마지막 숙제', date: today });
+    KB.app.render();
+  });
+  await page.waitForSelector('.hw');
+
+  await page.locator('.hw').first().click();
+  await page.waitForTimeout(700);
+
+  // 화면이 토글마다 다시 그려지므로, 미리 뽑아둔 목록을 순회하면
+  // 첫 클릭 뒤 나머지가 stale 요소가 되어 타임아웃 난다. 매번 다시 찾는다.
+  while (await page.locator('.habit:not(.is-done)').count() > 0) {
+    await page.locator('.habit:not(.is-done)').first().click();
+    await page.waitForTimeout(550);
+  }
+  await expect(page.locator('#screen')).toContainText('오늘 할 일 전부 끝!');
+});
+
+test('[9] 별 병이 별 개수에 따라 차오른다', async () => {
+  const h = await page.evaluate(() => {
+    const r = document.querySelector('.jar rect[fill="#F6BD3B"]');
+    return r ? +r.getAttribute('height') : -1;
+  });
+  expect(h, '별을 모았으면 병이 비어 있지 않다').toBeGreaterThan(0);
+});
+
 test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {
   await page.evaluate(() => KB.app.go('home'));
   await page.waitForSelector('#brandHold');

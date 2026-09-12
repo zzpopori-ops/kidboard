@@ -52,12 +52,23 @@
       ? '<section class="hws"><h2 class="sect">오늘의 숙제</h2><div class="hws__grid">' + cards + '</div></section>'
       : '<p class="empty">오늘 숙제가 없어요. 푹 쉬세요!</p>';
 
+    var p = store.progressOf(c.id, key);
+    var allDone = (due.length === 0) && (p.total === 0 || p.done >= p.total);
+
+    // 병은 "오늘 얼마나 했나" 가 아니라 "다음 보상까지 얼마나 왔나" 를 보여준다.
+    // 글을 못 읽어도 이해되는 지표라서 상점 가격 기준이 맞다.
+    var stars = store.starsOf(c.id);
+    var cheapest = store.rewards().reduce(function (m, r) {
+      return (m === null || r.cost < m) ? r.cost : m;
+    }, null);
+    var ratio = cheapest ? Math.min(1, stars / cheapest) : 0;
+
     screen().innerHTML = '' +
       '<header class="kidtop" style="--accent:' + esc(c.color) + '">' +
         '<h1 class="brand" id="brandHold">오늘의 할 일</h1>' +
         '<span class="kidtop__face">' + esc(c.emoji) + '</span>' +
         '<span class="kidtop__name">' + esc(c.name) + '</span>' +
-        '<span class="kidtop__jar" id="jarTarget">' + ui.jarSVG(0, c.color) + '</span>' +
+        '<span class="kidtop__jar" id="jarTarget">' + ui.jarSVG(ratio, c.color) + '</span>' +
         '<button class="starbtn" data-act="shop">' +
           '<span class="starbtn__n">⭐ ' + store.starsOf(c.id) + '</span>' +
           '<span class="starbtn__t">상점</span></button>' +
@@ -65,7 +76,10 @@
       hwSection +
       (habits.length
         ? '<section class="habits"><h2 class="sect">매일 하는 것</h2>' + chips + '</section>'
-        : '');
+        : '')
+      + (allDone ? '<p class="cheer">오늘 할 일 전부 끝! 🎉</p>' : '');
+
+    if (allDone) ui.beep('reward');
 
     ui.longPress($('#brandHold'), 1500, function () {
       ui.askPin('부모 설정').then(function (ok) {
