@@ -456,6 +456,8 @@
       var label = ($('#hw-label') || {}).value;
       var date = ($('#hw-date') || {}).value;
       if (!label || !label.trim()) { ui.toast('숙제 내용을 적어주세요.'); return true; }
+      // 템플릿의 {} 를 안 채우고 그대로 추가하면 아이 화면에 그 문구가 그대로 나가버린다
+      if (label.trim().indexOf('{}') >= 0) { ui.toast('빈칸을 채워주세요.'); return true; }
       store.addHomework({
         childId: store.children()[0].id,
         label: label.trim(),

@@ -357,6 +357,34 @@ test('[12] 템플릿을 누르면 입력칸이 채워지고 빈칸만 남는다'
   expect(v, '빈칸 표시가 남아 있다').toContain('{}');
 });
 
+test('[13b] 빈칸을 안 채우고 추가를 누르면 {} 가 그대로 아이 화면에 나가지 않는다', async () => {
+  // 다른 테스트가 화면을 어디에 남겨뒀는지에 기대지 않도록 직접 이동한다
+  await page.evaluate(() => KB.app.go('admin'));
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+
+  const before = await page.evaluate(() => KB.store.homeworkOf('c1').length);
+
+  // 템플릿만 누르고 숫자를 채우지 않은 채 바로 추가를 누른다
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.locator('[data-act="hw-add"]').click();
+
+  const afterBlank = await page.evaluate(() => KB.store.homeworkOf('c1'));
+  expect(afterBlank.length, '빈칸이 남은 채로는 추가되지 않는다').toBe(before);
+  expect(
+    afterBlank.some(function (w) { return w.label.indexOf('{}') >= 0; }),
+    '{} 가 들어간 숙제가 저장되면 안 된다'
+  ).toBe(false);
+
+  // 빈칸을 채우면 정상적으로 추가된다
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.fill('#hw-label', '수학 문제집 1~5쪽');
+  await page.locator('[data-act="hw-add"]').click();
+
+  const afterFilled = await page.evaluate(() => KB.store.homeworkOf('c1'));
+  expect(afterFilled.length, '빈칸을 채우면 정상 추가된다').toBe(before + 1);
+});
+
 test('[11~12] 새로고침해도 살아남는다', async () => {
   const before = await page.evaluate(() => ({
     raw: localStorage.getItem('kidboard.v2'),
