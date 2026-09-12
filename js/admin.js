@@ -120,7 +120,7 @@
   }
 
   function childForm(child) {
-    var c = child || { id: '', name: '', emoji: '🐻', color: COLORS[0], canRead: true, stars: 0 };
+    var c = child || { id: '', name: '', emoji: '🐻', color: COLORS[0], canRead: true };
     var m = ui.openModal(
       '<h2 class="modal__title">' + (child ? '아이 수정' : '아이 추가') + '</h2>' +
       '<label class="fld"><span>이름</span><input id="f-name" type="text" maxlength="10" value="' + esc(c.name) + '" placeholder="예: 하준"></label>' +
@@ -159,13 +159,14 @@
     $('[data-save]', m).onclick = function () {
       var name = $('#f-name', m).value.trim();
       if (!name) { ui.toast('이름을 입력하세요.'); return; }
+      // 별은 저장하지 않는다 — starsOf() 가 기록에서 계산한다 (여기서 다시 적으면
+      // 죽은 카운터가 부활해 나중에 누군가를 헷갈리게 하고, Phase 2 동기화 때 그대로 서버로 나간다)
       store.upsert('children', {
         id: c.id || undefined,
         name: name,
         emoji: pickerValue(m, '#f-emoji') || '🐻',
         color: pickerValue(m, '#f-color') || COLORS[0],
-        canRead: pickerValue(m, '#f-read') === '1',
-        stars: c.stars || 0
+        canRead: pickerValue(m, '#f-read') === '1'
       }, 'c');
       ui.closeModal(); renderAdmin(); ui.toast('저장했습니다.');
     };

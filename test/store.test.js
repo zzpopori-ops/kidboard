@@ -199,3 +199,30 @@ S.factoryReset();
   assert(list.length === 2, 'homeworkDue 는 상한 없이 전부');
   assert(list[0].label === '밀림', 'homeworkDue 는 여전히 오래된 순으로 정렬한다 (안 바뀜)');
 }
+
+console.log('[18] 아이 정보를 고쳐도 별 필드가 되살아나지 않는다');
+S.factoryReset();
+{
+  const before = S.getChild('c1');
+  assert(!('stars' in before), '수정 전에는 별 필드가 없다');
+
+  // 부모 화면 childForm 의 저장 버튼이 store.upsert('children', ...) 에 넘기는
+  // 객체 모양을 그대로 흉내낸다 (id, name, emoji, color, canRead 만 — 별은 없다).
+  // admin.js 저장 핸들러가 'stars: c.stars || 0' 를 다시 끼워 넣으면
+  // 이 자리에서 곧바로 실패해 회귀를 잡아낸다.
+  S.upsert('children', {
+    id: before.id,
+    name: before.name,
+    emoji: before.emoji,
+    color: before.color,
+    canRead: before.canRead
+  }, 'c');
+
+  const after = S.getChild('c1');
+  assert(!('stars' in after), '수정해도 별 필드가 생기면 안 된다 (getChild)');
+
+  const persisted = JSON.parse(mem['kidboard.v2']).children.find(c => c.id === before.id);
+  assert(!('stars' in persisted), '저장소(kidboard.v2)에도 별 필드가 남으면 안 된다');
+
+  assert(S.starsOf('c1') === 0, '수정 후에도 별은 여전히 기록에서 계산된다');
+}
