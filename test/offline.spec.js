@@ -115,13 +115,13 @@ test('서버 프로세스를 죽여도 캐시만으로 앱이 열린다', async 
   await expect(page.locator('[data-act="open-kid"]')).toHaveCount(0);
 
   // 껍데기만 뜨고 스크립트가 죽었을 수도 있다. 실제로 동작하는지 본다.
-  await page.waitForSelector('.chip');
-  expect(await page.locator('.chip').count(), '오프라인에서도 습관 칩이 그려져야 한다')
+  await page.waitForSelector('.habit');
+  expect(await page.locator('.habit').count(), '오프라인에서도 습관 칩이 그려져야 한다')
     .toBeGreaterThan(0);
 
   // 체크가 되고 저장까지 되는가 (localStorage 는 네트워크와 무관해야 한다)
   const before = await page.evaluate(() => KB.store.starsOf('c1'));
-  await page.locator('.chip').first().click();
+  await page.locator('.habit').first().click();
   await page.waitForTimeout(700);
   const after = await page.evaluate(() => KB.store.starsOf('c1'));
   expect(after, '오프라인에서도 별이 올라야 한다').toBeGreaterThan(before);

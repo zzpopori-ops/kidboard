@@ -26,10 +26,10 @@
     var chips = habits.map(function (h) {
       var done = doneIds.indexOf(h.id) !== -1;
       return '' +
-        '<button class="chip' + (done ? ' is-done' : '') + '" data-act="habit" data-id="' + esc(h.id) + '"' +
+        '<button class="habit' + (done ? ' is-done' : '') + '" data-act="habit" data-id="' + esc(h.id) + '"' +
                 ' aria-pressed="' + done + '">' +
-          '<span class="chip__emoji">' + esc(h.emoji) + '</span>' +
-          '<span class="chip__label">' + esc(h.label) + '</span>' +
+          '<span class="habit__emoji">' + esc(h.emoji) + '</span>' +
+          '<span class="habit__label">' + esc(h.label) + '</span>' +
         '</button>';
     }).join('');
 
@@ -90,7 +90,9 @@
   // 동작 처리 (클릭 위임)
   // ------------------------------------------------------------
   function onToggleHabit(habitId, el) {
-    var c = store.children()[0];
+    // 지금 그려진 아이를 기준으로 삼는다. 둘째가 생겨 선택 화면이 돌아와도
+    // 엉뚱한 아이(children()[0])의 습관이 토글되는 일이 없게 하려는 것이다.
+    var c = store.getChild(global.KB.app.current().id);
     if (!c) return;
     var res = store.toggleHabit(c.id, habitId);
     if (res.done) { ui.beep('check'); ui.flyStar(el, $('#jarTarget')); }

@@ -21,9 +21,10 @@
 
   function render() {
     state.day = store.dateKey();
+    state.id = state.id || firstChildId();   // current().id 가 항상 실제로 그려진 아이를 가리키게 한다
     if (state.view === 'admin') return admin.renderAdmin();
-    if (state.view === 'shop') return views.renderShop(state.id || firstChildId());
-    return views.renderKid(state.id || firstChildId());
+    if (state.view === 'shop') return views.renderShop(state.id);
+    return views.renderKid(state.id);
   }
 
   /** 아이가 1명이면 고르게 할 이유가 없다. 늘어나면 선택 화면이 저절로 돌아온다. */

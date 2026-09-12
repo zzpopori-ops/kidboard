@@ -67,7 +67,7 @@ test('[1] 앱을 켜면 아이 선택 없이 바로 할 일 화면', async () =>
 });
 
 test('[2] 습관은 칩으로 보이고 요일 필터가 걸린다', async () => {
-  const labels = await page.locator('.chip__label').allInnerTexts();
+  const labels = await page.locator('.habit__label').allInnerTexts();
   const wd = await page.evaluate(() => new Date().getDay());
   const weekend = wd === 0 || wd === 6;
   // "가방 챙기기" 는 days:[1..5] 라 주말에는 빠진다
@@ -76,7 +76,7 @@ test('[2] 습관은 칩으로 보이고 요일 필터가 걸린다', async () =>
 });
 
 test('[3] 습관을 누르면 별이 오르고 다시 누르면 회수된다', async () => {
-  const chip = () => page.locator('.chip', { hasText: '이 닦기' });
+  const chip = () => page.locator('.habit', { hasText: '이 닦기' });
   const stars = () => page.evaluate(() => KB.store.starsOf('c1'));
 
   expect(await stars()).toBe(0);
