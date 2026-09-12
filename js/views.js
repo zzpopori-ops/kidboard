@@ -33,6 +33,25 @@
         '</button>';
     }).join('');
 
+    // 오래 밀린 것부터 최대 4개까지만 보여준다. 나머지는 개수도 안 보인다 —
+    // "대기 3개" 를 띄우면 끝이 보이게 하려던 의도를 스스로 깨기 때문이다.
+    var due = store.homeworkDue(c.id, key, store.VISIBLE);
+    var cards = due.map(function (w) {
+      return '' +
+        '<button class="hw" data-act="homework" data-id="' + esc(w.id) + '">' +
+          (store.isOverdue(w, key)
+            ? '<span class="hw__overdue">' + esc(overdueText(w.date, key)) + '</span>' : '') +
+          '<span class="hw__emoji">' + esc(w.emoji) + '</span>' +
+          '<span class="hw__label">' + esc(w.label) + '</span>' +
+          '<span class="hw__star">⭐</span>' +
+          '<span class="hw__stamp">했다!</span>' +
+        '</button>';
+    }).join('');
+
+    var hwSection = due.length
+      ? '<section class="hws"><h2 class="sect">오늘의 숙제</h2><div class="hws__grid">' + cards + '</div></section>'
+      : '<p class="empty">오늘 숙제가 없어요. 푹 쉬세요!</p>';
+
     screen().innerHTML = '' +
       '<header class="kidtop" style="--accent:' + esc(c.color) + '">' +
         '<h1 class="brand" id="brandHold">오늘의 할 일</h1>' +
@@ -43,6 +62,7 @@
           '<span class="starbtn__n">⭐ ' + store.starsOf(c.id) + '</span>' +
           '<span class="starbtn__t">상점</span></button>' +
       '</header>' +
+      hwSection +
       (habits.length
         ? '<section class="habits"><h2 class="sect">매일 하는 것</h2>' + chips + '</section>'
         : '');
@@ -100,6 +120,21 @@
     setTimeout(function () { global.KB.app.render(); }, wait);
   }
 
+  /** '어제' / '3일 전' — 아이가 읽고 순서를 납득하게 */
+  function overdueText(date, key) {
+    var a = new Date(date + 'T00:00:00'), b = new Date(key + 'T00:00:00');
+    var n = Math.round((b - a) / 86400000);
+    return n === 1 ? '어제' : n + '일 전';
+  }
+
+  function onToggleHomework(id, el) {
+    store.setHomeworkDone(id, store.dateKey());
+    ui.beep('check');
+    ui.flyStar(el, $('#jarTarget'));
+    var wait = ui.reduceMotion ? 0 : 480;
+    setTimeout(function () { global.KB.app.render(); }, wait);
+  }
+
   function onRedeem(rewardId) {
     var childId = global.KB.app.current().id;
     var reward = null;
@@ -120,6 +155,7 @@
     renderKid: renderKid,
     renderShop: renderShop,
     onToggleHabit: onToggleHabit,
+    onToggleHomework: onToggleHomework,
     onRedeem: onRedeem
   };
 })(window);

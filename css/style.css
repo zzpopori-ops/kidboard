@@ -370,6 +370,27 @@ button { font-family: inherit; cursor: pointer; }
 .btn--danger { background: #FBE9EA; border-color: var(--berry); color: var(--berry); }
 .btn--add { width: 100%; margin-top: 6px; background: var(--bg); border-style: dashed; box-shadow: none; }
 
+/* ---------- 숙제 카드 ---------- */
+.hws { padding: 0 4px; }
+.hws__grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.hw {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 20px 14px; min-height: 150px;
+  background: #fff; border: 3px solid var(--ink); border-radius: 18px;
+  box-shadow: 0 5px 0 var(--ink); font: 800 18px system-ui, sans-serif; color: var(--ink);
+  text-align: center;
+}
+.hw__emoji { font-size: 44px; }
+.hw__label { font-size: 17px; line-height: 1.4; word-break: keep-all; }
+.hw__star { font-size: 18px; }
+.hw__overdue {
+  position: absolute; top: -10px; right: -6px;
+  background: var(--berry); color: #fff; border-radius: 999px;
+  padding: 3px 10px; font-size: 13px; font-weight: 800;
+}
+.hw__stamp { display: none; }
+@media (max-width: 420px) { .hws__grid { grid-template-columns: 1fr; } }
+
 /* ---------- 습관 칩 ---------- */
 .sect { font-size: 15px; color: var(--ink-soft); margin: 18px 0 8px; font-weight: 800; }
 .habits { padding: 0 4px; }

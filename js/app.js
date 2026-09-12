@@ -50,6 +50,7 @@
     if (act === 'home') return go('home');
     if (act === 'open-kid') return go('kid', id);
     if (act === 'shop') return go('shop', state.id);
+    if (act === 'homework') return views.onToggleHomework(id, btn);
     if (act === 'habit') return views.onToggleHabit(id, btn);
     if (act === 'redeem') return views.onRedeem(id);
   });

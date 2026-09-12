@@ -94,6 +94,69 @@ test('[3] 습관을 누르면 별이 오르고 다시 누르면 회수된다', a
   expect(await stars(), '5회 토글 후에도 1 고정').toBe(1);
 });
 
+test('[4] 숙제는 큰 카드로 보이고 밀린 것이 먼저 온다', async () => {
+  await page.evaluate(() => {
+    const S = KB.store;
+    const today = S.dateKey();
+    const past = S.dateKey(new Date(Date.now() - 3 * 86400000));
+    S.addHomework({ childId: 'c1', emoji: '📕', label: '오늘치 수학', date: today });
+    S.addHomework({ childId: 'c1', emoji: '🎨', label: '사흘 전 그림일기', date: past });
+    KB.app.render();
+  });
+  await page.waitForSelector('.hw');
+  const labels = await page.locator('.hw__label').allInnerTexts();
+  expect(labels[0], '오래 밀린 것이 맨 앞').toBe('사흘 전 그림일기');
+  await expect(page.locator('.hw', { hasText: '사흘 전 그림일기' }).locator('.hw__overdue'))
+    .toHaveCount(1);
+});
+
+test('[5] 아이 화면에는 숙제가 4개까지만, 나머지는 개수도 안 보인다', async () => {
+  await page.evaluate(() => {
+    const S = KB.store, today = S.dateKey();
+    for (let i = 0; i < 6; i++) {
+      S.addHomework({ childId: 'c1', emoji: '📗', label: '추가 숙제 ' + i, date: today });
+    }
+    KB.app.render();
+  });
+  await page.waitForSelector('.hw');
+  expect(await page.locator('.hw').count(), '화면에는 4개까지만').toBe(4);
+
+  const total = await page.evaluate(() => KB.store.homeworkDue('c1').length);
+  expect(total, '데이터에는 8개가 남아 있다').toBe(8);
+
+  // "대기 4개" 같은 표시조차 두지 않는다 — 끝이 보이게 하려는 의도를 스스로 깨기 때문
+  const text = await page.locator('#screen').innerText();
+  expect(/대기|남은|더 있|\+\d/.test(text), `화면 문구: ${text.slice(0, 120)}`).toBe(false);
+});
+
+test('[6] 숙제를 누르면 별이 1개 오르고 목록에서 빠진다', async () => {
+  const before = await page.evaluate(() => KB.store.starsOf('c1'));
+  const first = page.locator('.hw').first();
+  const label = await first.locator('.hw__label').innerText();
+  await first.click();
+  await page.waitForTimeout(700);
+
+  const after = await page.evaluate(() => KB.store.starsOf('c1'));
+  expect(after, '숙제 1개 = 별 1개').toBe(before + 1);
+
+  const labels = await page.locator('.hw__label').allInnerTexts();
+  expect(labels.includes(label), '끝낸 숙제는 화면에서 빠진다').toBe(false);
+});
+
+test('[7] 날짜가 바뀌어도 숙제는 사라지지 않고 이월된다', async () => {
+  const r = await page.evaluate(() => {
+    const S = KB.store;
+    const tomorrow = S.dateKey(new Date(Date.now() + 86400000));
+    return {
+      today: S.homeworkDue('c1').length,
+      tomorrow: S.homeworkDue('c1', tomorrow).length,
+      stars: S.starsOf('c1')
+    };
+  });
+  expect(r.tomorrow, '내일도 그대로 남는다 (습관과 다른 점)').toBe(r.today);
+  expect(r.stars, '모은 별은 유지된다').toBeGreaterThan(0);
+});
+
 test('[9] 제목 1.5초 롱프레스 → PIN → 부모 설정', async () => {
   await page.evaluate(() => KB.app.go('home'));
   await page.waitForSelector('#brandHold');
