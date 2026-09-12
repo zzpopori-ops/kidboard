@@ -1,0 +1,19 @@
+{
+  "name": "kidboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "아이 할 일 보드 — 부모는 편집권, 아이는 실행권",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node test/store.test.js",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "report": "playwright show-report",
+    "serve": "http-server . -p 8000 -a 0.0.0.0 -c-1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "http-server": "14.1.1"
+  }
+}

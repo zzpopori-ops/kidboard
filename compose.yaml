@@ -1,0 +1,48 @@
+# ============================================================
+#  compose.yaml — 테스트 실행 환경
+#
+#  앱 서빙 컨테이너는 아직 없다. 여기에는 테스트만 있다.
+# ============================================================
+services:
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kidboard-e2e:1.56.1
+
+    # Chromium 은 공유 메모리를 많이 쓴다. 도커 기본 /dev/shm 은 64MB 라
+    # 탭이 조용히 죽는다. host 로 붙여 그 문제를 피한다.
+    ipc: host
+
+    # 실패했을 때 흔적(스크린샷·트레이스)을 호스트에서 열어보기 위해
+    volumes:
+      # --- 소스를 그대로 들여다본다 (읽기 전용) ---
+      # 이게 없으면 이미지에 구워진 빌드 시점 소스를 검사하게 된다.
+      # 즉 코드를 고치고 재빌드 없이 돌리면 낡은 코드가 통과해버린다.
+      #
+      # /app 전체를 덮지 않고 하위 경로만 고르는 이유:
+      # 통째로 마운트하면 컨테이너의 /app/node_modules(리눅스 바이너리)가
+      # 호스트의 macOS 바이너리로 가려져 실행 자체가 안 된다.
+      - ./index.html:/app/index.html:ro
+      - ./sw.js:/app/sw.js:ro
+      - ./manifest.webmanifest:/app/manifest.webmanifest:ro
+      - ./css:/app/css:ro
+      - ./js:/app/js:ro
+      - ./icons:/app/icons:ro
+      - ./test:/app/test:ro
+      - ./playwright.config.js:/app/playwright.config.js:ro
+      #
+      # package.json / package-lock.json 은 일부러 뺐다.
+      # 의존성이 바뀌면 npm ci 를 다시 돌려야 하므로 재빌드가 맞다.
+      # (docker compose run --build e2e)
+
+      # --- 결과물은 호스트로 꺼낸다 (쓰기) ---
+      - ./test-results:/app/test-results
+      - ./playwright-report:/app/playwright-report
+
+    environment:
+      # 리포트에 HTML 을 추가로 남긴다
+      CI: "1"
+
+    # 테스트는 끝나면 종료되는 작업이다. 되살리지 않는다.
+    restart: "no"
