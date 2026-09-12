@@ -10,7 +10,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
     "report": "playwright show-report",
-    "serve": "http-server . -p 8000 -a 0.0.0.0 -c-1"
+    "serve": "http-server . -p 8000 -a 127.0.0.1 -c-1"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
