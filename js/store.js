@@ -1,15 +1,17 @@
 /* ============================================================
    store.js — 데이터 한 곳에서만 바뀌게 만드는 층
    화면 코드는 이 파일의 함수만 부른다. localStorage를 직접 만지지 않는다.
+
+   별은 저장하지 않는다. 기록에서 계산한다 — 더하다 틀어지는 일을 없애려고.
    ============================================================ */
 (function (global) {
   'use strict';
 
-  var KEY = 'kidboard.v1';   // 저장 키. 구조를 바꿀 땐 v2로 올린다
-  var DAY = 86400000;        // 1일(ms)
-  var KEEP_DAYS = 120;       // 진행 기록 보관 일수 (용량 상한)
+  var KEY = 'kidboard.v2';   // 구조를 바꿀 땐 v3으로 올린다
+  var DAY = 86400000;
+  var KEEP_DAYS = 120;       // 습관 진행 기록 보관 일수
+  var VISIBLE = 4;           // 아이 화면에 보여줄 숙제 최대 개수
 
-  // ---------- 작은 도구 ----------
   function uid(prefix) {
     return prefix + Math.random().toString(36).slice(2, 7) + Date.now().toString(36).slice(-3);
   }
@@ -22,51 +24,45 @@
     return t.getFullYear() + '-' + m + '-' + dd;
   }
 
-  /** 'YYYY-MM-DD' -> 요일 숫자(0=일 ... 6=토) */
-  function weekdayOf(key) {
-    return new Date(key + 'T00:00:00').getDay();
-  }
+  function weekdayOf(key) { return new Date(key + 'T00:00:00').getDay(); }
 
-  // ---------- 초기값 ----------
   function defaults() {
     return {
-      version: 1,
+      version: 2,
       pin: '1234',
       sound: true,
       children: [
-        { id: 'c1', name: '첫째', emoji: '🐯', color: '#3D7EA6', canRead: true,  stars: 0 },
-        { id: 'c2', name: '둘째', emoji: '🐰', color: '#4C9F70', canRead: false, stars: 0 }
+        { id: 'c1', name: '첫째', emoji: '🐯', color: '#3D7EA6', canRead: true }
       ],
-      tasks: [
-        { id: 't1', childId: 'c1', emoji: '🪥', label: '이 닦기',        stars: 1, days: [0,1,2,3,4,5,6] },
-        { id: 't2', childId: 'c1', emoji: '📚', label: '책 10분 읽기',   stars: 2, days: [0,1,2,3,4,5,6] },
-        { id: 't3', childId: 'c1', emoji: '🎒', label: '가방 챙기기',    stars: 1, days: [1,2,3,4,5] },
-        { id: 't4', childId: 'c1', emoji: '🧺', label: '빨래통에 넣기',  stars: 1, days: [0,1,2,3,4,5,6] },
-        { id: 't5', childId: 'c2', emoji: '🪥', label: '이 닦기',        stars: 1, days: [0,1,2,3,4,5,6] },
-        { id: 't6', childId: 'c2', emoji: '🧸', label: '장난감 정리',    stars: 2, days: [0,1,2,3,4,5,6] },
-        { id: 't7', childId: 'c2', emoji: '🧼', label: '손 씻기',        stars: 1, days: [0,1,2,3,4,5,6] },
-        { id: 't8', childId: 'c2', emoji: '🥛', label: '우유 다 먹기',   stars: 1, days: [0,1,2,3,4,5,6] }
+      habits: [
+        { id: 'h1', childId: 'c1', emoji: '🪥', label: '이 닦기',       stars: 1, days: [0,1,2,3,4,5,6] },
+        { id: 'h2', childId: 'c1', emoji: '🎒', label: '가방 챙기기',   stars: 1, days: [1,2,3,4,5] },
+        { id: 'h3', childId: 'c1', emoji: '🧺', label: '빨래통에 넣기', stars: 1, days: [0,1,2,3,4,5,6] }
+      ],
+      homework: [],
+      templates: [
+        { id: 'tpl1', emoji: '📕', text: '수학 문제집 {}~{}쪽' },
+        { id: 'tpl2', emoji: '✏️', text: '받아쓰기 {}문제' }
       ],
       rewards: [
-        { id: 'r1', emoji: '🍦', label: '아이스크림',   cost: 10 },
-        { id: 'r2', emoji: '📺', label: '만화 30분',    cost: 15 },
-        { id: 'r3', emoji: '🎠', label: '키즈카페',     cost: 50 }
+        { id: 'r1', emoji: '🍦', label: '아이스크림', cost: 10 },
+        { id: 'r2', emoji: '📺', label: '만화 30분',  cost: 15 },
+        { id: 'r3', emoji: '🎠', label: '키즈카페',   cost: 50 }
       ],
-      progress: {},      // { childId: { 'YYYY-MM-DD': [taskId, ...] } }
-      redemptions: []    // 보상 교환 기록
+      progress: {},      // 습관 전용 { childId: { 'YYYY-MM-DD': [habitId,...] } }
+      bonuses: [],       // { id, childId, amount, memo, at }
+      redemptions: []    // { id, childId, rewardId, label, emoji, cost, at }
     };
   }
 
   var data = defaults();
 
-  // ---------- 저장 / 불러오기 ----------
   function load() {
     try {
       var raw = global.localStorage.getItem(KEY);
       if (raw) {
         var parsed = JSON.parse(raw);
         var base = defaults();
-        // 새 버전에서 추가된 키가 없어도 앱이 죽지 않도록 기본값 위에 덮는다
         Object.keys(base).forEach(function (k) {
           if (parsed[k] !== undefined) base[k] = parsed[k];
         });
@@ -93,13 +89,13 @@
     }
   }
 
-  /** 오래된 진행 기록을 잘라 용량을 묶어둔다 */
+  /** 오래된 습관 기록을 잘라 용량을 묶어둔다 */
   function prune() {
     var limit = dateKey(new Date(Date.now() - KEEP_DAYS * DAY));
     Object.keys(data.progress).forEach(function (cid) {
       var byDate = data.progress[cid];
       Object.keys(byDate).forEach(function (k) {
-        if (k < limit) delete byDate[k];   // 'YYYY-MM-DD'는 문자열 비교로 날짜 비교가 된다
+        if (k < limit) delete byDate[k];
       });
     });
   }
@@ -108,146 +104,228 @@
   function all() { return data; }
   function children() { return data.children.slice(); }
   function rewards() { return data.rewards.slice(); }
+  function templates() { return data.templates.slice(); }
+
   function getChild(id) {
     for (var i = 0; i < data.children.length; i++) {
       if (data.children[i].id === id) return data.children[i];
     }
     return null;
   }
-  function getTask(id) {
-    for (var i = 0; i < data.tasks.length; i++) {
-      if (data.tasks[i].id === id) return data.tasks[i];
+
+  function habits(childId) {
+    return data.habits.filter(function (h) { return h.childId === childId; });
+  }
+
+  /** getChild 와 같은 모양 — id로 습관 하나. 없으면 null */
+  function getHabit(id) {
+    for (var i = 0; i < data.habits.length; i++) {
+      if (data.habits[i].id === id) return data.habits[i];
     }
     return null;
   }
 
-  /** 특정 아이의 특정 날짜 할 일 목록 (요일 필터 적용) */
-  function tasksFor(childId, key) {
-    var k = key || dateKey();
-    var wd = weekdayOf(k);
-    return data.tasks.filter(function (t) {
-      return t.childId === childId && (t.days || []).indexOf(wd) !== -1;
+  /** 그 날 요일에 해당하는 습관만 */
+  function habitsFor(childId, key) {
+    var wd = weekdayOf(key || dateKey());
+    return habits(childId).filter(function (h) {
+      return (h.days || []).indexOf(wd) !== -1;
     });
   }
 
-  /** 아이 전체 할 일 (부모 설정 화면용 — 요일 무관) */
-  function tasksOf(childId) {
-    return data.tasks.filter(function (t) { return t.childId === childId; });
+  function homeworkOf(childId) {
+    return data.homework.filter(function (w) { return w.childId === childId; });
+  }
+
+  /**
+   * 그 날 해야 할 숙제.
+   *   날짜가 그 날 이하  AND  아직 안 끝난 것
+   * 오래 밀린 것이 먼저 온다. limit 을 주면 앞에서 그만큼만.
+   * limit 을 안 주면 전부 — 부모 화면에서 밀린 총량을 보려고.
+   */
+  function homeworkDue(childId, key, limit) {
+    var k = key || dateKey();
+    var list = homeworkOf(childId)
+      .filter(function (w) { return !w.doneOn && w.date <= k; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    return limit ? list.slice(0, limit) : list;
+  }
+
+  function isOverdue(w, key) { return w.date < (key || dateKey()); }
+
+  /**
+   * 아이 화면에 보여줄 숙제 선택 (fix round 1).
+   * 오늘 것부터 채우고, 남는 자리에만 밀린 것을 오래된 순으로 채운다.
+   * "오래된 순으로 4개" 였던 원래 규칙은 밀린 게 쌓이면 오늘 숙제가
+   * 상한 안에 아예 못 들어가는 사고를 냈다 — 화면을 실제로 그려보고서야
+   * 드러났다. homeworkDue 는 부모 화면(상한 없음)이 그대로 써야 하므로
+   * 손대지 않고, 이 함수를 따로 둔다.
+   */
+  function homeworkForKid(childId, key, limit) {
+    var k = key || dateKey();
+    var list = homeworkOf(childId).filter(function (w) { return !w.doneOn && w.date <= k; });
+    var today = list.filter(function (w) { return w.date === k; });
+    var overdue = list
+      .filter(function (w) { return w.date < k; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var ordered = today.concat(overdue);
+    return limit ? ordered.slice(0, limit) : ordered;
   }
 
   function doneIds(childId, key) {
-    var k = key || dateKey();
     var byDate = data.progress[childId];
+    var k = key || dateKey();
     return (byDate && byDate[k]) ? byDate[k].slice() : [];
   }
 
-  function isDone(childId, taskId, key) {
-    return doneIds(childId, key).indexOf(taskId) !== -1;
+  function isHabitDone(childId, habitId, key) {
+    return doneIds(childId, key).indexOf(habitId) !== -1;
   }
 
-  /** 오늘 진행률 { done, total, ratio } */
+  /** 습관 진행률 { done, total, ratio } */
   function progressOf(childId, key) {
-    var total = tasksFor(childId, key).length;
+    var total = habitsFor(childId, key).length;
     var ids = doneIds(childId, key);
-    var done = tasksFor(childId, key).filter(function (t) {
-      return ids.indexOf(t.id) !== -1;
+    var done = habitsFor(childId, key).filter(function (h) {
+      return ids.indexOf(h.id) !== -1;
     }).length;
     return { done: done, total: total, ratio: total ? done / total : 0 };
   }
 
   /**
-   * 연속 달성일. 오늘이 아직 미완성이면 끊지 않고 어제부터 센다.
-   * 할 일이 0개인 날(예: 평일 항목만 있는 주말)은 건너뛴다.
+   * 별은 저장하지 않고 매번 계산한다.
+   * 이러면 재시도나 중복 기록으로 별이 부풀 수 없다.
    */
-  function streakOf(childId) {
+  function starsOf(childId) {
     var n = 0;
-    var now = Date.now();
-    for (var i = 0; i < 400; i++) {
-      var key = dateKey(new Date(now - i * DAY));
-      var p = progressOf(childId, key);
-      if (p.total === 0) continue;
-      if (p.done >= p.total) { n++; continue; }
-      if (i === 0) continue;   // 오늘은 진행 중일 수 있으므로 관용
-      break;
-    }
-    return n;
+    homeworkOf(childId).forEach(function (w) { if (w.doneOn) n += (w.stars || 1); });
+    var byDate = data.progress[childId] || {};
+    Object.keys(byDate).forEach(function (k) {
+      byDate[k].forEach(function (hid) {
+        var h = data.habits.filter(function (x) { return x.id === hid; })[0];
+        if (h) n += (h.stars || 1);
+      });
+    });
+    data.bonuses.forEach(function (b) { if (b.childId === childId) n += b.amount; });
+    data.redemptions.forEach(function (r) { if (r.childId === childId) n -= r.cost; });
+    return Math.max(0, n);
   }
 
   // ---------- 쓰기 ----------
-  /** 체크 토글. 체크 해제하면 별도 회수한다(반복 체크로 별 쌓기 방지) */
-  function toggleTask(childId, taskId) {
-    var child = getChild(childId);
-    var task = getTask(taskId);
-    if (!child || !task) return null;
+  // 함수 하나가 스펙의 작업(op) 하나에 대응한다. Phase 2 에서 이 안에 큐 적재만 붙인다.
 
-    var key = dateKey();
+  function addHomework(w) {
+    var item = {
+      id: w.id || uid('hw'),
+      childId: w.childId,
+      emoji: w.emoji || '📘',
+      label: w.label,
+      date: w.date || dateKey(),
+      stars: 1,
+      doneOn: null
+    };
+    data.homework.push(item);
+    save();
+    return item;
+  }
+
+  function setHomeworkDone(id, doneOn) {
+    var w = data.homework.filter(function (x) { return x.id === id; })[0];
+    if (!w) return null;
+    w.doneOn = doneOn || null;
+    save();
+    return w;
+  }
+
+  function moveHomework(id, date) {
+    var w = data.homework.filter(function (x) { return x.id === id; })[0];
+    if (!w) return null;
+    w.date = date;
+    save();
+    return w;
+  }
+
+  function removeHomework(id) {
+    data.homework = data.homework.filter(function (x) { return x.id !== id; });
+    save();
+  }
+
+  function toggleHabit(childId, habitId, key) {
+    var k = key || dateKey();
     if (!data.progress[childId]) data.progress[childId] = {};
-    if (!data.progress[childId][key]) data.progress[childId][key] = [];
-
-    var list = data.progress[childId][key];
-    var at = list.indexOf(taskId);
+    if (!data.progress[childId][k]) data.progress[childId][k] = [];
+    var list = data.progress[childId][k];
+    var at = list.indexOf(habitId);
     var done;
-
-    if (at === -1) {
-      list.push(taskId);
-      child.stars += task.stars;
-      done = true;
-    } else {
-      list.splice(at, 1);
-      child.stars = Math.max(0, child.stars - task.stars);
-      done = false;
-    }
-
+    if (at === -1) { list.push(habitId); done = true; }
+    else { list.splice(at, 1); done = false; }
     prune();
     save();
-    return { done: done, stars: task.stars, total: child.stars };
+    return { done: done };
+  }
+
+  /**
+   * "오늘 초기화" — 오늘 체크한 습관과 오늘 끝낸 숙제만 되돌린다.
+   * 별은 저장하지 않고 매번 계산하므로(starsOf) 따로 손대지 않아도
+   * 이 두 기록을 지우는 순간 저절로 줄어든다. 보너스/교환은 "오늘의
+   * 체크"가 아니라 별도 장부라서 여기서 건드리지 않는다.
+   */
+  function resetToday(childId) {
+    var k = dateKey();
+    if (data.progress[childId]) delete data.progress[childId][k];
+    data.homework.forEach(function (w) {
+      if (w.childId === childId && w.doneOn === k) w.doneOn = null;
+    });
+    save();
+  }
+
+  function addTemplate(t) {
+    var item = { id: t.id || uid('tpl'), emoji: t.emoji || '📘', text: t.text };
+    data.templates.push(item);
+    save();
+    return item;
+  }
+
+  function removeTemplate(id) {
+    data.templates = data.templates.filter(function (x) { return x.id !== id; });
+    save();
+  }
+
+  function addBonus(childId, amount, memo) {
+    var applied = amount;
+    if (amount < 0) {
+      // 있는 것보다 많이 깎지 않는다. 초과분을 그냥 기록해 버리면 합계만 0으로
+      // 가려질 뿐 빚(음수 기록)은 그대로 남아, 나중에 별을 벌어도 그 빚부터
+      // 갚느라 화면에 안 보이는 채로 사라진다 — 그게 이 클램프의 이유다.
+      var have = starsOf(childId);
+      applied = Math.max(amount, -have);
+      if (applied === 0) return null; // 이미 0이면 적용할 것이 없다 — 기록도 만들지 않는다
+    }
+    var item = {
+      id: uid('b'), childId: childId, amount: applied,
+      memo: memo || '', at: new Date().toISOString()
+    };
+    data.bonuses.unshift(item);
+    data.bonuses = data.bonuses.slice(0, 200);
+    save();
+    return item;
   }
 
   function redeem(childId, rewardId) {
-    var child = getChild(childId);
-    var reward = null;
-    for (var i = 0; i < data.rewards.length; i++) {
-      if (data.rewards[i].id === rewardId) reward = data.rewards[i];
+    var reward = data.rewards.filter(function (r) { return r.id === rewardId; })[0];
+    if (!getChild(childId) || !reward) return { ok: false, msg: '보상을 찾을 수 없습니다.' };
+    var have = starsOf(childId);
+    if (have < reward.cost) {
+      return { ok: false, msg: '별이 ' + (reward.cost - have) + '개 더 필요합니다.' };
     }
-    if (!child || !reward) return { ok: false, msg: '보상을 찾을 수 없습니다.' };
-    if (child.stars < reward.cost) {
-      return { ok: false, msg: '별이 ' + (reward.cost - child.stars) + '개 더 필요합니다.' };
-    }
-
-    child.stars -= reward.cost;
     data.redemptions.unshift({
-      id: uid('x'),
-      childId: childId,
-      label: reward.label,
-      emoji: reward.emoji,
-      cost: reward.cost,
+      id: uid('x'), childId: childId, rewardId: reward.id,
+      label: reward.label, emoji: reward.emoji, cost: reward.cost,
       at: new Date().toISOString()
     });
     data.redemptions = data.redemptions.slice(0, 200);
     save();
-    return { ok: true, left: child.stars };
-  }
-
-  function adjustStars(childId, delta) {
-    var child = getChild(childId);
-    if (!child) return 0;
-    child.stars = Math.max(0, child.stars + delta);
-    save();
-    return child.stars;
-  }
-
-  function resetToday(childId) {
-    var key = dateKey();
-    var ids = doneIds(childId, key);
-    var child = getChild(childId);
-    if (child) {
-      ids.forEach(function (tid) {
-        var t = getTask(tid);
-        if (t) child.stars = Math.max(0, child.stars - t.stars);
-      });
-    }
-    if (data.progress[childId]) delete data.progress[childId][key];
-    save();
+    return { ok: true, left: starsOf(childId) };
   }
 
   // ---------- 부모 설정용 CRUD ----------
@@ -255,11 +333,7 @@
     var list = data[listName];
     if (obj.id) {
       for (var i = 0; i < list.length; i++) {
-        if (list[i].id === obj.id) {
-          Object.assign(list[i], obj);
-          save();
-          return list[i];
-        }
+        if (list[i].id === obj.id) { Object.assign(list[i], obj); save(); return list[i]; }
       }
     }
     obj.id = obj.id || uid(prefix);
@@ -271,7 +345,8 @@
   function remove(listName, id) {
     data[listName] = data[listName].filter(function (x) { return x.id !== id; });
     if (listName === 'children') {
-      data.tasks = data.tasks.filter(function (t) { return t.childId !== id; });
+      data.habits = data.habits.filter(function (h) { return h.childId !== id; });
+      data.homework = data.homework.filter(function (w) { return w.childId !== id; });
       delete data.progress[id];
     }
     save();
@@ -281,34 +356,36 @@
   function checkPin(pin) { return String(pin) === String(data.pin); }
   function setSound(on) { data.sound = !!on; save(); }
 
-  // ---------- 백업 / 복원 ----------
   function exportJSON() { return JSON.stringify(data, null, 2); }
 
   function importJSON(text) {
     var parsed = JSON.parse(text);
-    if (!parsed || !Array.isArray(parsed.children) || !Array.isArray(parsed.tasks)) {
+    if (!parsed || !Array.isArray(parsed.children) || !Array.isArray(parsed.homework)) {
       throw new Error('백업 파일 형식이 맞지 않습니다.');
     }
     data = parsed;
     if (!data.progress) data.progress = {};
+    if (!data.bonuses) data.bonuses = [];
     if (!data.redemptions) data.redemptions = [];
+    if (!data.templates) data.templates = [];
     save();
   }
 
   function factoryReset() { data = defaults(); save(); }
 
-  // ---------- 밖으로 내보내는 것만 ----------
   global.KB = global.KB || {};
   global.KB.store = {
-    load: load, save: save,
-    dateKey: dateKey, uid: uid,
-    all: all, children: children, rewards: rewards,
-    getChild: getChild, getTask: getTask,
-    tasksFor: tasksFor, tasksOf: tasksOf,
-    doneIds: doneIds, isDone: isDone,
-    progressOf: progressOf, streakOf: streakOf,
-    toggleTask: toggleTask, redeem: redeem,
-    adjustStars: adjustStars, resetToday: resetToday,
+    VISIBLE: VISIBLE,
+    load: load, save: save, dateKey: dateKey, uid: uid,
+    all: all, children: children, getChild: getChild,
+    rewards: rewards, templates: templates,
+    habits: habits, habitsFor: habitsFor, getHabit: getHabit, isHabitDone: isHabitDone,
+    doneIds: doneIds, progressOf: progressOf, toggleHabit: toggleHabit, resetToday: resetToday,
+    homeworkOf: homeworkOf, homeworkDue: homeworkDue, homeworkForKid: homeworkForKid, isOverdue: isOverdue,
+    addHomework: addHomework, setHomeworkDone: setHomeworkDone,
+    moveHomework: moveHomework, removeHomework: removeHomework,
+    addTemplate: addTemplate, removeTemplate: removeTemplate,
+    starsOf: starsOf, addBonus: addBonus, redeem: redeem,
     upsert: upsert, remove: remove,
     setPin: setPin, checkPin: checkPin, setSound: setSound,
     exportJSON: exportJSON, importJSON: importJSON, factoryReset: factoryReset

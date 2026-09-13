@@ -111,26 +111,26 @@ test('서버 프로세스를 죽여도 캐시만으로 앱이 열린다', async 
   await page.reload();
 
   await expect(page.locator('.brand')).toHaveText('오늘의 할 일');
-  await expect(page.locator('[data-act="open-kid"]')).toHaveCount(2);
+  // 아이가 1명이면 고르는 화면 없이 바로 할 일 화면으로 들어간다(js/app.js)
+  await expect(page.locator('[data-act="open-kid"]')).toHaveCount(0);
 
   // 껍데기만 뜨고 스크립트가 죽었을 수도 있다. 실제로 동작하는지 본다.
-  await page.locator('[data-act="open-kid"]').first().click();
-  await page.waitForSelector('.tile');
-  expect(await page.locator('.tile').count(), '오프라인에서도 할 일 타일이 그려져야 한다')
+  await page.waitForSelector('.habit');
+  expect(await page.locator('.habit').count(), '오프라인에서도 습관 칩이 그려져야 한다')
     .toBeGreaterThan(0);
 
   // 체크가 되고 저장까지 되는가 (localStorage 는 네트워크와 무관해야 한다)
-  const before = await page.evaluate(() => KB.store.getChild('c1').stars);
-  await page.locator('.tile').first().click();
+  const before = await page.evaluate(() => KB.store.starsOf('c1'));
+  await page.locator('.habit').first().click();
   await page.waitForTimeout(700);
-  const after = await page.evaluate(() => KB.store.getChild('c1').stars);
+  const after = await page.evaluate(() => KB.store.starsOf('c1'));
   expect(after, '오프라인에서도 별이 올라야 한다').toBeGreaterThan(before);
 
   // 새로 연 탭에서도 되는가 — 아이가 앱을 껐다 켜는 상황
   const page2 = await ctx.newPage();
   await page2.goto(ORIGIN + '/');
-  await expect(page2.locator('[data-act="open-kid"]')).toHaveCount(2);
-  expect(await page2.evaluate(() => KB.store.getChild('c1').stars),
+  await expect(page2.locator('[data-act="open-kid"]')).toHaveCount(0);
+  expect(await page2.evaluate(() => KB.store.starsOf('c1')),
     '껐다 켜도 별이 남아 있어야 한다').toBe(after);
 
   await ctx.close();

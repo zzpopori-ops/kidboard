@@ -370,6 +370,41 @@ button { font-family: inherit; cursor: pointer; }
 .btn--danger { background: #FBE9EA; border-color: var(--berry); color: var(--berry); }
 .btn--add { width: 100%; margin-top: 6px; background: var(--bg); border-style: dashed; box-shadow: none; }
 
+/* ---------- 숙제 카드 ---------- */
+.hws { padding: 0 4px; }
+.hws__grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.hw {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 20px 14px; min-height: 150px;
+  background: #fff; border: 3px solid var(--ink); border-radius: 18px;
+  box-shadow: 0 5px 0 var(--ink); font: 800 18px system-ui, sans-serif; color: var(--ink);
+  text-align: center;
+}
+.hw__emoji { font-size: 44px; }
+.hw__label { font-size: 17px; line-height: 1.4; word-break: keep-all; }
+.hw__star { font-size: 18px; }
+.hw__overdue {
+  position: absolute; top: -10px; right: -6px;
+  background: var(--berry); color: #fff; border-radius: 999px;
+  padding: 3px 10px; font-size: 13px; font-weight: 800;
+}
+.hw__stamp { display: none; }
+@media (max-width: 420px) { .hws__grid { grid-template-columns: 1fr; } }
+
+/* ---------- 습관 칩 ---------- */
+.sect { font-size: 15px; color: var(--ink-soft); margin: 18px 0 8px; font-weight: 800; }
+.habits { padding: 0 4px; }
+.habit {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 16px; margin: 0 8px 8px 0;
+  background: #fff; border: 2px solid var(--ink); border-radius: 999px;
+  font: 700 16px system-ui, sans-serif; color: var(--ink);
+  box-shadow: 0 3px 0 var(--ink);
+}
+.habit__emoji { font-size: 22px; }
+.habit.is-done { background: #DFF3E6; opacity: .75; box-shadow: none; transform: translateY(3px); }
+.habit.is-done .habit__label { text-decoration: line-through; }
+
 /* ---------- 7. 모달 ---------- */
 /* hidden 속성은 UA 기본 스타일이라 아래 display:grid 에 밀린다. 명시적으로 눌러준다 */
 .modal[hidden] { display: none; }
@@ -486,3 +521,13 @@ button { font-family: inherit; cursor: pointer; }
   .tiles--pic .tile__emoji { font-size: 60px; }
   .kidtop { flex-wrap: wrap; }
 }
+
+/* ---------- 부모 화면 숙제 목록 ---------- */
+.hwrow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 6px;
+  background: #fff; border: 2px solid var(--ink); border-radius: 10px;
+}
+.hwrow.is-late { border-color: var(--berry); }
+.hwrow__date { font-size: 13px; color: var(--ink-soft); font-weight: 800; min-width: 44px; }
+.hwrow__label { flex: 1; font-weight: 700; word-break: keep-all; }

@@ -12,38 +12,86 @@
 
   function screen() { return $('#screen'); }
 
-  // ------------------------------------------------------------
-  // 1) 아이 선택 화면
-  // ------------------------------------------------------------
-  function renderHome() {
-    var kids = store.children();
-    var now = new Date();
-    var dateLine = (now.getMonth() + 1) + '월 ' + now.getDate() + '일 ' + WD[now.getDay()] + '요일';
+  // 습관 토글, 자정 감시(app.js 의 setInterval/visibilitychange) 등으로
+  // renderKid 가 같은 날 여러 번 다시 그려진다. 소리는 하루 한 번만 —
+  // 마지막으로 축하음을 울린 "아이|날짜" 를 기억해 중복을 막는다.
+  var lastCheeredFor = null;
 
-    var cards = kids.map(function (c) {
-      var p = store.progressOf(c.id);
-      var allDone = p.total > 0 && p.done >= p.total;
+  // ------------------------------------------------------------
+  // 1) 아이 화면 (숙제는 Task 3, 지금은 습관만 보인다)
+  // ------------------------------------------------------------
+  function renderKid(childId) {
+    var c = store.getChild(childId);
+    if (!c) { screen().innerHTML = '<p class="empty">부모 설정에서 아이를 추가하세요.</p>'; return; }
+
+    var key = store.dateKey();
+    var habits = store.habitsFor(c.id, key);
+    var doneIds = store.doneIds(c.id, key);
+
+    var chips = habits.map(function (h) {
+      var done = doneIds.indexOf(h.id) !== -1;
       return '' +
-        '<button class="pick" data-act="open-kid" data-id="' + esc(c.id) + '" style="--accent:' + esc(c.color) + '">' +
-          '<span class="pick__face">' + esc(c.emoji) + '</span>' +
-          '<span class="pick__name">' + esc(c.name) + '</span>' +
-          '<span class="pick__jar">' + ui.jarSVG(p.ratio, c.color) + '</span>' +
-          '<span class="pick__meta">' +
-            (p.total === 0 ? '오늘은 할 일이 없어요'
-              : allDone ? '오늘 다 했어요!'
-              : p.done + ' / ' + p.total + ' 했어요') +
-          '</span>' +
-          '<span class="pick__stars">⭐ ' + c.stars + '</span>' +
+        '<button class="habit' + (done ? ' is-done' : '') + '" data-act="habit" data-id="' + esc(h.id) + '"' +
+                ' aria-pressed="' + done + '">' +
+          '<span class="habit__emoji">' + esc(h.emoji) + '</span>' +
+          '<span class="habit__label">' + esc(h.label) + '</span>' +
         '</button>';
     }).join('');
 
+    // 오래 밀린 것부터 최대 4개까지만 보여준다. 나머지는 개수도 안 보인다 —
+    // "대기 3개" 를 띄우면 끝이 보이게 하려던 의도를 스스로 깨기 때문이다.
+    var due = store.homeworkForKid(c.id, key, store.VISIBLE);
+    var cards = due.map(function (w) {
+      return '' +
+        '<button class="hw" data-act="homework" data-id="' + esc(w.id) + '">' +
+          (store.isOverdue(w, key)
+            ? '<span class="hw__overdue">' + esc(overdueText(w.date, key)) + '</span>' : '') +
+          '<span class="hw__emoji">' + esc(w.emoji) + '</span>' +
+          '<span class="hw__label">' + esc(w.label) + '</span>' +
+          '<span class="hw__star">⭐</span>' +
+          '<span class="hw__stamp">했다!</span>' +
+        '</button>';
+    }).join('');
+
+    var hwSection = due.length
+      ? '<section class="hws"><h2 class="sect">오늘의 숙제</h2><div class="hws__grid">' + cards + '</div></section>'
+      : '<p class="empty">오늘 숙제가 없어요. 푹 쉬세요!</p>';
+
+    var p = store.progressOf(c.id, key);
+    // 할 일이 아예 없던 날(습관도 숙제도 0개)까지 "전부 끝"으로 치면
+    // 아무것도 안 했는데 축하를 받는 꼴이라, 오늘 뭔가 했다는 증거를 요구한다.
+    var didSomethingToday = p.total > 0 ||
+      store.homeworkOf(c.id).some(function (w) { return w.doneOn === key; });
+    var allDone = didSomethingToday && (due.length === 0) && (p.total === 0 || p.done >= p.total);
+
+    // 병은 "오늘 얼마나 했나" 가 아니라 "다음 보상까지 얼마나 왔나" 를 보여준다.
+    // 글을 못 읽어도 이해되는 지표라서 상점 가격 기준이 맞다.
+    var stars = store.starsOf(c.id);
+    var cheapest = store.rewards().reduce(function (m, r) {
+      return (m === null || r.cost < m) ? r.cost : m;
+    }, null);
+    var ratio = cheapest ? Math.min(1, stars / cheapest) : 0;
+
     screen().innerHTML = '' +
-      '<header class="top">' +
+      '<header class="kidtop" style="--accent:' + esc(c.color) + '">' +
         '<h1 class="brand" id="brandHold">오늘의 할 일</h1>' +
-        '<p class="top__date">' + esc(dateLine) + '</p>' +
+        '<span class="kidtop__face">' + esc(c.emoji) + '</span>' +
+        '<span class="kidtop__name">' + esc(c.name) + '</span>' +
+        '<span class="kidtop__jar" id="jarTarget">' + ui.jarSVG(ratio, c.color) + '</span>' +
+        '<button class="starbtn" data-act="shop">' +
+          '<span class="starbtn__n">⭐ ' + store.starsOf(c.id) + '</span>' +
+          '<span class="starbtn__t">상점</span></button>' +
       '</header>' +
-      '<section class="picks">' + (cards || '<p class="empty">부모 설정에서 아이를 추가하세요. 제목을 1.5초간 누르면 설정으로 들어갑니다.</p>') + '</section>' +
-      '<footer class="hint">제목을 1.5초간 누르면 부모 설정</footer>';
+      hwSection +
+      (habits.length
+        ? '<section class="habits"><h2 class="sect">매일 하는 것</h2>' + chips + '</section>'
+        : '')
+      + (allDone ? '<p class="cheer">오늘 할 일 전부 끝! 🎉</p>' : '');
+
+    if (allDone) {
+      var cheerKey = c.id + '|' + key;
+      if (lastCheeredFor !== cheerKey) { ui.beep('reward'); lastCheeredFor = cheerKey; }
+    }
 
     ui.longPress($('#brandHold'), 1500, function () {
       ui.askPin('부모 설정').then(function (ok) {
@@ -53,62 +101,18 @@
   }
 
   // ------------------------------------------------------------
-  // 2) 오늘의 할 일 화면
-  // ------------------------------------------------------------
-  function renderKid(childId) {
-    var c = store.getChild(childId);
-    if (!c) return renderHome();
-
-    var tasks = store.tasksFor(c.id);
-    var done = store.doneIds(c.id);
-    var p = store.progressOf(c.id);
-    var streak = store.streakOf(c.id);
-    var allDone = p.total > 0 && p.done >= p.total;
-
-    // 글을 읽는 아이는 글자 중심, 아직 못 읽는 아이는 그림 중심
-    var mode = c.canRead ? 'read' : 'pic';
-
-    var tiles = tasks.map(function (t) {
-      var isDone = done.indexOf(t.id) !== -1;
-      return '' +
-        '<button class="tile' + (isDone ? ' is-done' : '') + '" data-act="toggle" data-id="' + esc(t.id) + '" aria-pressed="' + isDone + '">' +
-          '<span class="tile__emoji">' + esc(t.emoji) + '</span>' +
-          '<span class="tile__label">' + esc(t.label) + '</span>' +
-          '<span class="tile__stars">' + new Array(t.stars + 1).join('⭐') + '</span>' +
-          '<span class="tile__stamp">했다!</span>' +
-        '</button>';
-    }).join('');
-
-    screen().innerHTML = '' +
-      '<header class="kidtop" style="--accent:' + esc(c.color) + '">' +
-        '<button class="iconbtn" data-act="home" aria-label="처음으로">←</button>' +
-        '<span class="kidtop__face">' + esc(c.emoji) + '</span>' +
-        '<span class="kidtop__name">' + esc(c.name) + '</span>' +
-        '<span class="kidtop__jar" id="jarTarget">' + ui.jarSVG(p.ratio, c.color) + '</span>' +
-        '<button class="starbtn" data-act="shop"><span class="starbtn__n">⭐ ' + c.stars + '</span><span class="starbtn__t">상점</span></button>' +
-      '</header>' +
-
-      (streak > 1 ? '<p class="streak">🔥 ' + streak + '일 연속!</p>' : '') +
-
-      (p.total === 0
-        ? '<p class="empty">오늘은 할 일이 없어요. 푹 쉬세요!</p>'
-        : '<section class="tiles tiles--' + mode + '">' + tiles + '</section>') +
-
-      (allDone ? '<p class="cheer">오늘 할 일 전부 끝! 🎉</p>' : '');
-
-    if (allDone) ui.beep('reward');
-  }
-
-  // ------------------------------------------------------------
   // 3) 별 상점
   // ------------------------------------------------------------
   function renderShop(childId) {
     var c = store.getChild(childId);
-    if (!c) return renderHome();
+    if (!c) { screen().innerHTML = '<p class="empty">부모 설정에서 아이를 추가하세요.</p>'; return; }
+
+    // 별은 저장된 값이 아니라 계산값이므로, 목록을 순회하기 전에 딱 한 번만 구한다
+    var stars = store.starsOf(c.id);
 
     var items = store.rewards().map(function (r) {
-      var can = c.stars >= r.cost;
-      var need = r.cost - c.stars;
+      var can = stars >= r.cost;
+      var need = r.cost - stars;
       return '' +
         '<div class="shopitem' + (can ? ' is-ready' : '') + '">' +
           '<span class="shopitem__emoji">' + esc(r.emoji) + '</span>' +
@@ -117,7 +121,7 @@
           (can
             ? '<button class="btn btn--go" data-act="redeem" data-id="' + esc(r.id) + '">바꾸기</button>'
             : '<span class="shopitem__need">별 ' + need + '개 더</span>') +
-          '<span class="shopitem__bar"><i style="width:' + Math.min(100, Math.round(c.stars / r.cost * 100)) + '%"></i></span>' +
+          '<span class="shopitem__bar"><i style="width:' + Math.min(100, Math.round(stars / r.cost * 100)) + '%"></i></span>' +
         '</div>';
     }).join('');
 
@@ -126,7 +130,7 @@
         '<button class="iconbtn" data-act="open-kid" data-id="' + esc(c.id) + '" aria-label="할 일로">←</button>' +
         '<span class="kidtop__face">' + esc(c.emoji) + '</span>' +
         '<span class="kidtop__name">' + esc(c.name) + '의 별 상점</span>' +
-        '<span class="kidtop__total">⭐ ' + c.stars + '</span>' +
+        '<span class="kidtop__total">⭐ ' + stars + '</span>' +
       '</header>' +
       '<section class="shop">' + (items || '<p class="empty">부모 설정에서 보상을 추가하세요.</p>') + '</section>';
   }
@@ -134,20 +138,30 @@
   // ------------------------------------------------------------
   // 동작 처리 (클릭 위임)
   // ------------------------------------------------------------
-  function onToggle(taskId, tileEl) {
-    var childId = global.KB.app.current().id;
-    var res = store.toggleTask(childId, taskId);
-    if (!res) return;
+  function onToggleHabit(habitId, el) {
+    // 지금 그려진 아이를 기준으로 삼는다. 둘째가 생겨 선택 화면이 돌아와도
+    // 엉뚱한 아이(children()[0])의 습관이 토글되는 일이 없게 하려는 것이다.
+    var c = store.getChild(global.KB.app.current().id);
+    if (!c) return;
+    var res = store.toggleHabit(c.id, habitId);
+    if (res.done) { ui.beep('check'); ui.flyStar(el, $('#jarTarget')); }
+    var wait = ui.reduceMotion ? 0 : 480;
+    setTimeout(function () { global.KB.app.render(); }, wait);
+  }
 
-    if (res.done) {
-      ui.beep('done');
-      ui.flyStar(tileEl, $('#jarTarget'));
-      // 별이 날아간 뒤에 다시 그린다. 연출과 갱신이 겹치지 않게
-      setTimeout(function () { renderKid(childId); }, ui.reduceMotion ? 0 : 480);
-    } else {
-      ui.beep('undo');
-      renderKid(childId);
-    }
+  /** '어제' / '3일 전' — 아이가 읽고 순서를 납득하게 */
+  function overdueText(date, key) {
+    var a = new Date(date + 'T00:00:00'), b = new Date(key + 'T00:00:00');
+    var n = Math.round((b - a) / 86400000);
+    return n === 1 ? '어제' : n + '일 전';
+  }
+
+  function onToggleHomework(id, el) {
+    store.setHomeworkDone(id, store.dateKey());
+    ui.beep('check');
+    ui.flyStar(el, $('#jarTarget'));
+    var wait = ui.reduceMotion ? 0 : 480;
+    setTimeout(function () { global.KB.app.render(); }, wait);
   }
 
   function onRedeem(rewardId) {
@@ -167,10 +181,10 @@
   }
 
   global.KB.views = {
-    renderHome: renderHome,
     renderKid: renderKid,
     renderShop: renderShop,
-    onToggle: onToggle,
+    onToggleHabit: onToggleHabit,
+    onToggleHomework: onToggleHomework,
     onRedeem: onRedeem
   };
 })(window);

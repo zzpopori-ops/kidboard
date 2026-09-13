@@ -15,7 +15,8 @@
   var EMOJI_GIFT = ['🍦','📺','🎠','🍪','🎁','🧁','🎬','🏊','🚲','🎨','🍕','🧩'];
   var COLORS = ['#3D7EA6','#4C9F70','#D64550','#C1720A','#7A5AA6','#1F8A8C'];
 
-  var tab = 'children';
+  // 숙제는 부모가 매일 쓰는 탭이라 맨 앞 · 기본 탭으로 둔다
+  var tab = 'homework';
 
   function screen() { return $('#screen'); }
 
@@ -23,7 +24,7 @@
   // 전체 렌더
   // ------------------------------------------------------------
   function renderAdmin() {
-    var tabs = [['children','아이'],['tasks','할 일'],['rewards','보상'],['data','데이터']];
+    var tabs = [['homework','숙제'],['children','아이'],['tasks','할 일'],['rewards','보상'],['data','데이터']];
 
     screen().innerHTML = '' +
       '<header class="admintop">' +
@@ -42,10 +43,53 @@
   }
 
   function panelHTML() {
+    if (tab === 'homework') return homeworkPanel();
     if (tab === 'children') return childrenPanel();
     if (tab === 'tasks') return tasksPanel();
     if (tab === 'rewards') return rewardsPanel();
     return dataPanel();
+  }
+
+  // ------------------------------------------------------------
+  // 숙제 탭 — 부모가 매일 여기서 오늘 숙제를 입력한다
+  // ------------------------------------------------------------
+  function homeworkPanel() {
+    var c = store.children()[0];
+    if (!c) return '<p class="empty">아이 탭에서 아이를 먼저 추가하세요.</p>';
+
+    var today = store.dateKey();
+    // 완료 여부와 상관없이 전부 가져온 뒤 안 한 것만 골라, 밀린 순서(오래된 것부터)로 보여준다
+    var list = store.homeworkOf(c.id)
+      .filter(function (w) { return !w.doneOn; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+
+    var rows = list.map(function (w) {
+      var late = w.date < today;
+      return '' +
+        '<div class="hwrow' + (late ? ' is-late' : '') + '">' +
+          '<span class="hwrow__date">' + esc(w.date.slice(5)) + '</span>' +
+          '<span class="hwrow__emoji">' + esc(w.emoji) + '</span>' +
+          '<span class="hwrow__label">' + esc(w.label) + '</span>' +
+          (late ? '<button class="mini" data-act="hw-today" data-id="' + esc(w.id) + '">오늘로</button>' : '') +
+          '<button class="mini mini--warn" data-act="hw-del" data-id="' + esc(w.id) + '">지움</button>' +
+        '</div>';
+    }).join('');
+
+    // 템플릿을 눌러 문구를 채우고 숫자만 바꿔 넣게 한다 — 매일 같은 문구를 다시 치지 않도록
+    var tpls = store.templates().map(function (t) {
+      return '<button class="mini" data-act="tpl-use" data-id="' + esc(t.id) + '">' +
+               esc(t.emoji) + ' ' + esc(t.text) + '</button>';
+    }).join('');
+
+    return '' +
+      '<div class="row"><label>날짜</label>' +
+        '<input type="date" id="hw-date" value="' + esc(today) + '"></div>' +
+      '<div class="row"><label>템플릿</label><div class="tpls">' + tpls + '</div></div>' +
+      '<div class="row"><label>숙제</label>' +
+        '<input type="text" id="hw-label" placeholder="예: 수학 문제집 1~5쪽"></div>' +
+      '<button class="btn btn--add" data-act="hw-add">추가</button>' +
+      '<h3 class="sect">아직 안 한 숙제 (' + list.length + '개)</h3>' +
+      (rows || '<p class="empty">없습니다.</p>');
   }
 
   // ------------------------------------------------------------
@@ -59,7 +103,7 @@
           '<span class="row__emoji">' + esc(c.emoji) + '</span>' +
           '<span class="row__main">' +
             '<b>' + esc(c.name) + '</b>' +
-            '<small>' + (c.canRead ? '글자 화면' : '그림 화면') + ' · 오늘 ' + p.done + '/' + p.total + ' · 별 ' + c.stars + '개</small>' +
+            '<small>' + (c.canRead ? '글자 화면' : '그림 화면') + ' · 오늘 ' + p.done + '/' + p.total + ' · 별 ' + store.starsOf(c.id) + '개</small>' +
           '</span>' +
           '<span class="row__nudge">' +
             '<button class="mini" data-act="star-minus" data-id="' + esc(c.id) + '">−</button>' +
@@ -76,7 +120,7 @@
   }
 
   function childForm(child) {
-    var c = child || { id: '', name: '', emoji: '🐻', color: COLORS[0], canRead: true, stars: 0 };
+    var c = child || { id: '', name: '', emoji: '🐻', color: COLORS[0], canRead: true };
     var m = ui.openModal(
       '<h2 class="modal__title">' + (child ? '아이 수정' : '아이 추가') + '</h2>' +
       '<label class="fld"><span>이름</span><input id="f-name" type="text" maxlength="10" value="' + esc(c.name) + '" placeholder="예: 하준"></label>' +
@@ -115,13 +159,14 @@
     $('[data-save]', m).onclick = function () {
       var name = $('#f-name', m).value.trim();
       if (!name) { ui.toast('이름을 입력하세요.'); return; }
+      // 별은 저장하지 않는다 — starsOf() 가 기록에서 계산한다 (여기서 다시 적으면
+      // 죽은 카운터가 부활해 나중에 누군가를 헷갈리게 하고, Phase 2 동기화 때 그대로 서버로 나간다)
       store.upsert('children', {
         id: c.id || undefined,
         name: name,
         emoji: pickerValue(m, '#f-emoji') || '🐻',
         color: pickerValue(m, '#f-color') || COLORS[0],
-        canRead: pickerValue(m, '#f-read') === '1',
-        stars: c.stars || 0
+        canRead: pickerValue(m, '#f-read') === '1'
       }, 'c');
       ui.closeModal(); renderAdmin(); ui.toast('저장했습니다.');
     };
@@ -135,7 +180,9 @@
     if (!kids.length) return '<p class="empty">먼저 아이를 추가하세요.</p>';
 
     return kids.map(function (c) {
-      var list = store.tasksOf(c.id);
+      // habitsFor 는 그 날 요일에 맞는 것만 거르는데, 여기는 부모가 전체를
+      // 관리하는 화면이라 요일과 상관없이 다 보여야 한다 — habits 를 쓴다.
+      var list = store.habits(c.id);
       var rows = list.map(function (t) {
         return '' +
           '<div class="row">' +
@@ -218,7 +265,7 @@
     $('[data-cancel]', m).onclick = ui.closeModal;
     if (task) {
       $('[data-del]', m).onclick = function () {
-        store.remove('tasks', t.id);
+        store.remove('habits', t.id);
         ui.closeModal(); renderAdmin(); ui.toast('삭제했습니다.');
       };
     }
@@ -228,7 +275,7 @@
       var days = $$('#f-days .chip--day.is-on', m).map(function (d) { return Number(d.getAttribute('data-v')); });
       if (!days.length) { ui.toast('요일을 하나 이상 고르세요.'); return; }
 
-      store.upsert('tasks', {
+      store.upsert('habits', {
         id: t.id || undefined,
         childId: $('#f-child', m).value,
         label: label,
@@ -408,10 +455,38 @@
   // ------------------------------------------------------------
   function handle(act, id) {
     if (act === 'tab') { tab = id; renderAdmin(); return true; }
+    if (act === 'hw-add') {
+      var label = ($('#hw-label') || {}).value;
+      var date = ($('#hw-date') || {}).value;
+      if (!label || !label.trim()) { ui.toast('숙제 내용을 적어주세요.'); return true; }
+      // 템플릿의 {} 를 안 채우고 그대로 추가하면 아이 화면에 그 문구가 그대로 나가버린다
+      if (label.trim().indexOf('{}') >= 0) { ui.toast('빈칸을 채워주세요.'); return true; }
+      store.addHomework({
+        childId: store.children()[0].id,
+        label: label.trim(),
+        date: date || store.dateKey()
+      });
+      renderAdmin();
+      return true;
+    }
+    if (act === 'hw-del') { store.removeHomework(id); renderAdmin(); return true; }
+    if (act === 'hw-today') { store.moveHomework(id, store.dateKey()); renderAdmin(); return true; }
+    if (act === 'tpl-use') {
+      var t = store.templates().filter(function (x) { return x.id === id; })[0];
+      var input = $('#hw-label');
+      if (t && input) {
+        input.value = t.text;
+        input.focus();
+        // 첫 빈칸 앞에 커서를 둔다. 숫자만 바꿔 넣으면 끝나게.
+        var at = t.text.indexOf('{}');
+        if (at >= 0) input.setSelectionRange(at, at + 2);
+      }
+      return true;
+    }
     if (act === 'new-child') { childForm(null); return true; }
     if (act === 'edit-child') { childForm(store.getChild(id)); return true; }
     if (act === 'new-task') { taskForm(null, id); return true; }
-    if (act === 'edit-task') { taskForm(store.getTask(id)); return true; }
+    if (act === 'edit-task') { taskForm(store.getHabit(id)); return true; }
     if (act === 'new-reward') { rewardForm(null); return true; }
     if (act === 'edit-reward') {
       var r = null;
@@ -419,8 +494,16 @@
       rewardForm(r);
       return true;
     }
-    if (act === 'star-plus') { store.adjustStars(id, 1); renderAdmin(); return true; }
-    if (act === 'star-minus') { store.adjustStars(id, -1); renderAdmin(); return true; }
+    // 별 가감도 보너스 기록으로 남겨야 나중에 '왜 줬는지' 를 설명할 수 있다
+    if (act === 'star-plus')  { store.addBonus(id, 1, '부모 보너스');  renderAdmin(); return true; }
+    if (act === 'star-minus') {
+      // 0개인 아이에게서 더 깎으면 store 는 기록을 만들지 않고 null 을 돌려준다.
+      // 버튼을 죽은 것처럼 두지 않고, 왜 안 됐는지 토스트로 알려준다.
+      var applied = store.addBonus(id, -1, '부모 차감');
+      if (!applied) { ui.toast('별이 없어요.'); return true; }
+      renderAdmin();
+      return true;
+    }
     if (act === 'reset-today') {
       var c = store.getChild(id);
       ui.confirmBox((c ? c.name : '') + ' 오늘 초기화', '오늘 체크와 오늘 받은 별을 되돌립니다.', '초기화').then(function (yes) {
@@ -431,5 +514,5 @@
     return false;
   }
 
-  global.KB.admin = { renderAdmin: renderAdmin, handle: handle, resetTab: function () { tab = 'children'; } };
+  global.KB.admin = { renderAdmin: renderAdmin, handle: handle, resetTab: function () { tab = 'homework'; } };
 })(window);
