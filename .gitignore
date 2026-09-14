@@ -3,3 +3,8 @@ test-results/
 playwright-report/
 blob-report/
 .DS_Store
+
+# 동기화 서버 비밀: 인증서 개인키와 토큰. 공개 저장소에 올라가면 되돌릴 수 없다.
+server/certs/
+server/data/
+.env
