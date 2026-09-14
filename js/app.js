@@ -70,12 +70,35 @@
   }
 
   // ------------------------------------------------------------
+  // 동기화는 설정돼 있을 때만 시도한다. 미설정이면 store.syncNow() 를
+  // 아예 부르지 않는다 — 부르면 내부에서 no-op 이라도, "호출 자체가
+  // 없어야 한다"는 계약(Task 7)을 지키려면 여기서 먼저 막아야 한다.
+  // 실패는 store.syncNow() 가 절대 reject 하지 않으므로 화면에 아무
+  // 표시도 남기지 않는다 — 부모 화면(admin.js)만 결과를 보여준다.
+  // ------------------------------------------------------------
+  function watchSync() {
+    function trigger() {
+      if (!store.syncConfig()) return;
+      store.syncNow();
+    }
+
+    trigger(); // 앱을 열자마자 한 번
+
+    setInterval(trigger, 120000); // 켜둔 채로 오래 있어도 주기적으로 받아온다
+
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) trigger(); // 다시 켜서 볼 때가 가장 최신 데이터가 필요한 순간이다
+    });
+  }
+
+  // ------------------------------------------------------------
   // 시작
   // ------------------------------------------------------------
   function boot() {
     store.load();
     render();
     watchMidnight();
+    watchSync();
 
     // 오프라인 동작용. file:// 로 열면 등록되지 않는데, 그건 정상이다
     if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {

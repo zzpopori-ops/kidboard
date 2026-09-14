@@ -692,6 +692,69 @@ test('[17] 동기화 설정은 부모 화면에만 있고 아이 화면엔 흔�
   await page.evaluate(() => KB.store.setSyncConfig(null));
 });
 
+// ------------------------------------------------------------
+// [18] 자동 동기화 시점 — 앱 시작 / visibilitychange / 주기 타이머
+//
+// 이 테스트만 별도 브라우저 컨텍스트를 쓴다. KB.store.syncNow 를
+// store.js 가 만들기 전에 스파이로 감싸 둬야, 앱 시작 시점의 호출까지
+// 놓치지 않고 셀 수 있다 — addInitScript 로 KB 를 먼저 만들어 두고
+// KB.store 가 대입되는 순간(=store.js 로드 시점)을 가로챈다.
+// ------------------------------------------------------------
+test('[18] 동기화는 설정돼 있을 때만 시작·화면 복귀·주기 타이머에서 불린다', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+
+  await p.addInitScript(() => {
+    window.__syncCalls = 0;
+    var kb = {};
+    Object.defineProperty(kb, 'store', {
+      configurable: true,
+      get: function () { return this._store; },
+      set: function (v) {
+        if (v && typeof v.syncNow === 'function') {
+          var orig = v.syncNow.bind(v);
+          v.syncNow = function () { window.__syncCalls++; return orig.apply(v, arguments); };
+        }
+        this._store = v;
+      }
+    });
+    window.KB = kb;
+  });
+
+  await p.clock.install();
+  await p.goto('/');
+  await p.evaluate(() => { localStorage.removeItem('kidboard.v2'); KB.store.setSyncConfig(null); });
+  await p.reload();
+  await p.waitForSelector('.hw, .empty');
+
+  // 미설정 — 시작, 화면 복귀, 주기 타이머 어디서도 한 번도 불리면 안 된다
+  expect(await p.evaluate(() => window.__syncCalls), '미설정인데 앱 시작만으로 불렸다').toBe(0);
+
+  await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(await p.evaluate(() => window.__syncCalls), '미설정인데 visibilitychange 로 불렸다').toBe(0);
+
+  await p.clock.fastForward('02:30');
+  expect(await p.evaluate(() => window.__syncCalls), '미설정인데 주기 타이머로 불렸다').toBe(0);
+
+  // 이제 설정한다 — 새로고침(=앱 재시작)만으로 최소 한 번은 불려야 한다
+  await p.evaluate(() => KB.store.setSyncConfig({ url: 'https://example.test:9', token: 't' }));
+  await p.reload();
+  await p.waitForSelector('.hw, .empty');
+  const afterBoot = await p.evaluate(() => window.__syncCalls);
+  expect(afterBoot, '설정된 상태로 앱을 시작해도 한 번도 안 불렸다').toBeGreaterThan(0);
+
+  await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  const afterVisible = await p.evaluate(() => window.__syncCalls);
+  expect(afterVisible, 'visibilitychange 로 다시 불리지 않았다').toBeGreaterThan(afterBoot);
+
+  await p.clock.fastForward('02:30');
+  const afterTimer = await p.evaluate(() => window.__syncCalls);
+  expect(afterTimer, '주기 타이머로 또 불리지 않았다').toBeGreaterThan(afterVisible);
+
+  await p.evaluate(() => KB.store.setSyncConfig(null));
+  await ctx.close();
+});
+
 test('[E] 콘솔 에러가 하나도 없다', async () => {
   expect(consoleErrors, consoleErrors.join(' | ')).toEqual([]);
 });
