@@ -117,4 +117,111 @@ console.log('[8] 재시작해도 남는다');
   assert(s2.read().state.homework.length === 1, '재시작 뒤에도 opId 를 기억한다');
 }
 
-console.log(`\n합계: ok ${pass} / FAIL ${fail}`);
+// ---------- HTTP 구간 ----------
+const https = require('https');
+const { spawn } = require('child_process');
+
+function request(opts, body) {
+  return new Promise(function (resolve, reject) {
+    var req = https.request(Object.assign({
+      host: '127.0.0.1', port: 8477, rejectUnauthorized: false
+    }, opts), function (res) {
+      var buf = '';
+      res.on('data', function (d) { buf += d; });
+      res.on('end', function () {
+        var json = null;
+        try { json = JSON.parse(buf); } catch (e) {}
+        resolve({ status: res.statusCode, body: json, headers: res.headers });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function httpTests() {
+  const stateFile = tmpFile();
+  const certDir = process.env.KB_CERT_DIR;       // Task 2 Step 3 에서 만든다
+  const srv = spawn('node', [
+    path.join(__dirname, '..', 'server', 'api.js'),
+    '--port', '8477',
+    '--cert', path.join(certDir, 'cert.pem'),
+    '--key', path.join(certDir, 'key.pem'),
+    '--state', stateFile,
+    '--token', 'test-token',
+    '--origin', 'https://example.test'
+  ], { stdio: 'ignore' });
+
+  // 뜰 때까지 기다린다
+  for (let i = 0; i < 50; i++) {
+    try { await request({ path: '/api/ping', method: 'GET' }); break; }
+    catch (e) { await new Promise(r => setTimeout(r, 100)); }
+  }
+
+  console.log('[9] ping');
+  {
+    const r = await request({ path: '/api/ping', method: 'GET' });
+    assert(r.status === 200 && r.body.ok === true, 'ping 은 인증 없이 200');
+  }
+
+  console.log('[10] 인증');
+  {
+    const r = await request({ path: '/api/sync', method: 'POST',
+      headers: { 'content-type': 'application/json' } }, { deviceId: 'd1', ops: [] });
+    assert(r.status === 401, '토큰 없으면 401');
+    const r2 = await request({ path: '/api/sync', method: 'POST',
+      // 헤더 값은 Latin1 만 허용된다 (Node 의 http 계층 제약) — 한글 토큰 대신 ASCII 오타로 대체
+      headers: { 'content-type': 'application/json', authorization: 'Bearer wrong-token' } },
+      { deviceId: 'd1', ops: [] });
+    assert(r2.status === 401, '틀린 토큰도 401');
+  }
+
+  const auth = { 'content-type': 'application/json', authorization: 'Bearer test-token' };
+
+  console.log('[11] 시딩과 동기화');
+  {
+    const seeded = await request({ path: '/api/seed', method: 'POST', headers: auth },
+      { state: { version: 2, children: [{ id: 'c1', name: '첫째' }], homework: [],
+                 habits: [], templates: [], rewards: [], progress: {}, bonuses: [], redemptions: [] } });
+    assert(seeded.status === 200 && seeded.body.ok === true, '빈 서버는 시딩을 받는다');
+
+    const r = await request({ path: '/api/sync', method: 'POST', headers: auth }, {
+      deviceId: 'tab', ops: [{ opId: 'h-1', type: 'homework.add',
+        payload: { id: 'hw1', childId: 'c1', emoji: '📕', label: '수학 1~5쪽', date: '2026-09-14', stars: 1, doneOn: null } }]
+    });
+    assert(r.status === 200, '동기화 200');
+    assert(r.body.accepted.indexOf('h-1') !== -1, 'accepted 에 들어온다');
+    assert(r.body.state.homework.length === 1, '응답에 전체 상태가 온다');
+  }
+
+  console.log('[12] 재전송해도 안 늘어난다 (HTTP 경유)');
+  {
+    const op = { opId: 'h-dup', type: 'homework.add',
+      payload: { id: 'hw2', childId: 'c1', emoji: '📗', label: '받아쓰기', date: '2026-09-14', stars: 1, doneOn: null } };
+    await request({ path: '/api/sync', method: 'POST', headers: auth }, { deviceId: 'tab', ops: [op] });
+    const second = await request({ path: '/api/sync', method: 'POST', headers: auth }, { deviceId: 'tab', ops: [op] });
+    const count = second.body.state.homework.filter(function (w) { return w.id === 'hw2'; }).length;
+    assert(count === 1, '같은 opId 는 한 번만 적용된다');
+  }
+
+  console.log('[13] CORS 프리플라이트');
+  {
+    const r = await request({ path: '/api/sync', method: 'OPTIONS',
+      headers: { origin: 'https://example.test' } });
+    assert(r.status === 204, 'OPTIONS 는 204');
+    assert(r.headers['access-control-allow-origin'] === 'https://example.test', '허용 출처를 돌려준다');
+  }
+
+  console.log('[14] 두 번째 시딩은 거부');
+  {
+    const r = await request({ path: '/api/seed', method: 'POST', headers: auth },
+      { state: { version: 2, children: [], homework: [] } });
+    assert(r.body.ok === false, '이미 시딩된 서버는 거부한다 — 실수로 덮어쓰면 별이 사라진다');
+  }
+
+  srv.kill('SIGKILL');
+  console.log(`\n합계: ok ${pass} / FAIL ${fail}`);
+}
+
+httpTests();

@@ -5,7 +5,7 @@
   "description": "아이 할 일 보드 — 부모는 편집권, 아이는 실행권",
   "scripts": {
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "node test/store.test.js",
+    "test:unit": "node test/store.test.js && KB_CERT_DIR=test/fixtures/tls node test/server.test.js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
