@@ -670,6 +670,28 @@ test('[16] 부모 화면 — 모든 탭이 에러 없이 열리고 뭔가를 그
   expect(errors, errors.join(' | ')).toEqual([]);
 });
 
+test('[17] 동기화 설정은 부모 화면에만 있고 아이 화면엔 흔적이 없다', async () => {
+  await page.evaluate(() => { KB.store.setSyncConfig(null); KB.app.go('home'); });
+  await page.waitForSelector('.hw, .empty');
+  const kid = await page.locator('#screen').innerText();
+  expect(/동기화|서버|토큰/.test(kid), `아이 화면 문구: ${kid.slice(0, 120)}`).toBe(false);
+
+  await page.evaluate(() => KB.app.go('admin'));
+  await page.locator('[data-act="tab"][data-id="data"]').click();
+  await page.waitForSelector('#sync-url');
+  await page.fill('#sync-url', 'https://example.test:8443');
+  await page.fill('#sync-token', 'abc');
+  await page.locator('[data-act="sync-save"]').click();
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => KB.store.syncConfig().url)).toBe('https://example.test:8443');
+
+  await page.evaluate(() => KB.app.go('home'));
+  await page.waitForSelector('.hw, .empty');
+  const kid2 = await page.locator('#screen').innerText();
+  expect(/동기화|마지막|서버/.test(kid2), '설정 후에도 아이 화면은 그대로').toBe(false);
+  await page.evaluate(() => KB.store.setSyncConfig(null));
+});
+
 test('[E] 콘솔 에러가 하나도 없다', async () => {
   expect(consoleErrors, consoleErrors.join(' | ')).toEqual([]);
 });

@@ -429,8 +429,29 @@
   // ------------------------------------------------------------
   // 데이터 탭
   // ------------------------------------------------------------
+  /** '방금' / '3시간 전' 같은 사람이 읽는 말투로 바꾼다. 부모 화면 전용 — 아이는 절대 이 문구를 보지 않는다 */
+  function timeAgoPhrase(iso) {
+    if (!iso) return '없음';
+    var ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0) ms = 0;
+    var min = Math.floor(ms / 60000);
+    if (min < 1) return '방금';
+    if (min < 60) return min + '분 전';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + '시간 전';
+    return Math.floor(hr / 24) + '일 전';
+  }
+
+  function syncStatusText() {
+    var pending = store.outbox().length;
+    var txt = '마지막 동기화: ' + timeAgoPhrase(store.lastSync());
+    if (pending > 0) txt += ' · 보낼 작업 ' + pending + '개';
+    return txt;
+  }
+
   function dataPanel() {
     var d = store.all();
+    var cfg = store.syncConfig() || {};
     return '' +
       '<div class="row"><span class="row__main"><b>소리</b><small>체크할 때 나는 효과음</small></span>' +
         '<button class="mini" id="btn-sound">' + (d.sound ? '켜짐' : '꺼짐') + '</button></div>' +
@@ -443,7 +464,20 @@
       '<div class="row"><span class="row__main"><b>전체 초기화</b><small>모든 아이·할 일·별이 지워집니다</small></span>' +
         '<button class="mini mini--warn" id="btn-reset">초기화</button></div>' +
       '<input type="file" id="file-import" accept="application/json,.json" hidden>' +
-      '<p class="note">브라우저 데이터를 지우면 기록이 사라집니다. 한 달에 한 번은 내보내기로 백업하세요.</p>';
+      '<p class="note">브라우저 데이터를 지우면 기록이 사라집니다. 한 달에 한 번은 내보내기로 백업하세요.</p>' +
+      '<h3 class="group">태블릿 동기화 (부모 전용)</h3>' +
+      '<label class="fld"><span>서버 주소</span>' +
+        '<input id="sync-url" type="text" value="' + esc(cfg.url || '') + '" placeholder="https://맥북주소:8443"></label>' +
+      '<label class="fld"><span>토큰</span>' +
+        '<input id="sync-token" type="text" value="' + esc(cfg.token || '') + '" placeholder="토큰"></label>' +
+      '<div class="modal__row">' +
+        '<button class="btn btn--ghost" data-act="sync-save">저장</button>' +
+        '<button class="btn btn--go" data-act="sync-now">지금 동기화</button>' +
+      '</div>' +
+      '<div class="row"><span class="row__main"><b>이 기기 데이터로 서버 채우기</b>' +
+        '<small>다른 기기 데이터를 이 기기 것으로 덮어씁니다 — 처음 설정할 때 태블릿에서만 누르세요</small></span>' +
+        '<button class="mini mini--warn" data-act="sync-seed">서버 채우기</button></div>' +
+      '<p class="note" id="sync-status">' + esc(syncStatusText()) + '</p>';
   }
 
   function wireData() {
@@ -608,6 +642,37 @@
       var c = store.getChild(id);
       ui.confirmBox((c ? c.name : '') + ' 오늘 초기화', '오늘 체크와 오늘 받은 별을 되돌립니다.', '초기화').then(function (yes) {
         if (yes) { store.resetToday(id); renderAdmin(); ui.toast('오늘 기록을 초기화했습니다.'); }
+      });
+      return true;
+    }
+    if (act === 'sync-save') {
+      var url = (($('#sync-url') || {}).value || '').trim();
+      var token = (($('#sync-token') || {}).value || '').trim();
+      // 둘 다 비우면 '동기화 끔' 으로 취급한다 — setSyncConfig(null) 이 큐까지 비워준다
+      store.setSyncConfig(url ? { url: url, token: token } : null);
+      renderAdmin();
+      ui.toast('저장했습니다.');
+      return true;
+    }
+    if (act === 'sync-now') {
+      store.syncNow().then(function (r) {
+        ui.toast(r.ok ? '동기화했습니다.' : (r.reason || '동기화에 실패했습니다.'));
+        if (tab === 'data') renderAdmin();
+      });
+      return true;
+    }
+    if (act === 'sync-seed') {
+      // 태블릿이 기준이라는 설계 결정을 버튼을 누르는 순간에도 다시 알려준다 — 실수로 다른 기기 데이터를 날리지 않도록
+      ui.confirmBox(
+        '서버 채우기',
+        '지금 이 기기(태블릿)에 있는 데이터로 서버를 채웁니다. 다른 기기의 데이터는 다음 동기화 때 이 데이터로 덮어써집니다. 처음 설정할 때 태블릿에서 한 번만 누르세요.',
+        '채우기'
+      ).then(function (yes) {
+        if (!yes) return;
+        store.seedServer().then(function (r) {
+          ui.toast(r.ok ? '서버를 채웠습니다.' : (r.msg || '실패했습니다.'));
+          if (tab === 'data') renderAdmin();
+        });
       });
       return true;
     }
