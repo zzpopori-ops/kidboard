@@ -463,3 +463,32 @@ console.log('[31] load() — 이미 새 템플릿이거나 부모가 손댄 템�
 
 S.factoryReset();
 console.log('테스트 끝, 되돌려 둠');
+
+console.log('[동기화] 설정 전에는 아무 일도 하지 않는다');
+S.factoryReset();
+assert(S.syncConfig() === null, '기본은 미설정');
+assert(S.outbox().length === 0, '큐도 비어 있다');
+S.addHomework({ childId: 'c1', emoji: '📕', label: '설정 전 숙제', date: S.dateKey() });
+assert(S.outbox().length === 0, '미설정이면 op 를 쌓지 않는다 — 네트워크 호출이 아예 없어야 한다');
+
+console.log('[동기화] 설정하면 그 뒤 변경부터 큐에 쌓인다');
+S.setSyncConfig({ url: 'https://example.test:8443', token: 't' });
+assert(S.syncConfig().url === 'https://example.test:8443', '설정이 저장된다');
+const q0 = S.outbox().length;
+const hwQ = S.addHomework({ childId: 'c1', emoji: '📗', label: '설정 후 숙제', date: S.dateKey() });
+assert(S.outbox().length === q0 + 1, '숙제 추가가 큐에 쌓인다');
+S.setHomeworkDone(hwQ.id, S.dateKey());
+assert(S.outbox().length === q0 + 2, '완료도 쌓인다');
+const ops = S.outbox();
+assert(ops.every(o => o.opId && o.type && o.payload), 'op 는 opId·type·payload 를 갖는다');
+assert(new Set(ops.map(o => o.opId)).size === ops.length, 'opId 는 서로 다르다');
+
+console.log('[동기화] 큐는 새로고침을 넘겨 살아남는다');
+const before = S.outbox().length;
+S.load();
+assert(S.outbox().length === before, '큐가 localStorage 에 저장된다 — 안 그러면 오프라인 체크가 날아간다');
+
+console.log('[동기화] 설정을 지우면 큐도 비운다');
+S.setSyncConfig(null);
+assert(S.syncConfig() === null, '설정이 지워진다');
+assert(S.outbox().length === 0, '보낼 곳이 없는 큐를 들고 있을 이유가 없다');

@@ -53,7 +53,10 @@
       ],
       progress: {},      // 습관 전용 { childId: { 'YYYY-MM-DD': [habitId,...] } }
       bonuses: [],       // { id, childId, amount, memo, at }
-      redemptions: []    // { id, childId, rewardId, label, emoji, cost, at }
+      redemptions: [],   // { id, childId, rewardId, label, emoji, cost, at }
+      sync: null,        // { url, token } — 설정 전에는 null 이고, 그때는 네트워크를 아예 안 쓴다
+      outbox: [],        // 서버에 아직 못 올린 작업들
+      lastSyncAt: null
     };
   }
 
@@ -235,6 +238,17 @@
   // ---------- 쓰기 ----------
   // 함수 하나가 스펙의 작업(op) 하나에 대응한다. Phase 2 에서 이 안에 큐 적재만 붙인다.
 
+  /** 동기화가 설정됐을 때만 큐에 쌓는다. 미설정이면 아무 일도 하지 않는다. */
+  function enqueue(type, payload) {
+    if (!data.sync) return;
+    data.outbox.push({
+      opId: uid('op'),
+      at: new Date().toISOString(),
+      type: type,
+      payload: payload
+    });
+  }
+
   function addHomework(w) {
     var item = {
       id: w.id || uid('hw'),
@@ -246,6 +260,7 @@
       doneOn: null
     };
     data.homework.push(item);
+    enqueue('homework.add', item);
     save();
     return item;
   }
@@ -254,6 +269,7 @@
     var w = data.homework.filter(function (x) { return x.id === id; })[0];
     if (!w) return null;
     w.doneOn = doneOn || null;
+    enqueue('homework.setDone', { id: id, doneOn: w.doneOn });
     save();
     return w;
   }
@@ -262,12 +278,14 @@
     var w = data.homework.filter(function (x) { return x.id === id; })[0];
     if (!w) return null;
     w.date = date;
+    enqueue('homework.move', { id: id, date: date });
     save();
     return w;
   }
 
   function removeHomework(id) {
     data.homework = data.homework.filter(function (x) { return x.id !== id; });
+    enqueue('homework.remove', { id: id });
     save();
   }
 
@@ -281,6 +299,7 @@
     if (at === -1) { list.push(habitId); done = true; }
     else { list.splice(at, 1); done = false; }
     prune();
+    enqueue('habit.toggle', { childId: childId, habitId: habitId, date: k, done: done });
     save();
     return { done: done };
   }
@@ -400,6 +419,7 @@
     };
     data.bonuses.unshift(item);
     data.bonuses = data.bonuses.slice(0, 200);
+    enqueue('bonus.add', item);
     save();
     return item;
   }
@@ -411,26 +431,38 @@
     if (have < reward.cost) {
       return { ok: false, msg: '별이 ' + (reward.cost - have) + '개 더 필요합니다.' };
     }
-    data.redemptions.unshift({
+    var item = {
       id: uid('x'), childId: childId, rewardId: reward.id,
       label: reward.label, emoji: reward.emoji, cost: reward.cost,
       at: new Date().toISOString()
-    });
+    };
+    data.redemptions.unshift(item);
     data.redemptions = data.redemptions.slice(0, 200);
+    enqueue('redemption.add', item);
     save();
     return { ok: true, left: starsOf(childId) };
   }
 
+  // listName -> op 종류 이름. children 만 예외적으로 단수형이 다르다(child)
+  var KIND_OF_LIST = { children: 'child', habits: 'habit', templates: 'template', rewards: 'reward' };
+
   // ---------- 부모 설정용 CRUD ----------
   function upsert(listName, obj, prefix) {
     var list = data[listName];
+    var kind = KIND_OF_LIST[listName];
     if (obj.id) {
       for (var i = 0; i < list.length; i++) {
-        if (list[i].id === obj.id) { Object.assign(list[i], obj); save(); return list[i]; }
+        if (list[i].id === obj.id) {
+          Object.assign(list[i], obj);
+          if (kind) enqueue(kind + '.upsert', list[i]);
+          save();
+          return list[i];
+        }
       }
     }
     obj.id = obj.id || uid(prefix);
     list.push(obj);
+    if (kind) enqueue(kind + '.upsert', obj);
     save();
     return obj;
   }
@@ -442,6 +474,8 @@
       data.homework = data.homework.filter(function (w) { return w.childId !== id; });
       delete data.progress[id];
     }
+    var kind = KIND_OF_LIST[listName];
+    if (kind) enqueue(kind + '.remove', { id: id });
     save();
   }
 
@@ -466,6 +500,15 @@
 
   function factoryReset() { data = defaults(); save(); }
 
+  function syncConfig() { return data.sync || null; }
+  function setSyncConfig(cfg) {
+    data.sync = cfg || null;
+    if (!cfg) data.outbox = [];   // 보낼 곳이 없는 큐를 들고 있을 이유가 없다
+    save();
+  }
+  function outbox() { return data.outbox.slice(); }
+  function lastSync() { return data.lastSyncAt; }
+
   global.KB = global.KB || {};
   global.KB.store = {
     VISIBLE: VISIBLE,
@@ -483,6 +526,7 @@
     starsOf: starsOf, addBonus: addBonus, redeem: redeem,
     upsert: upsert, remove: remove,
     setPin: setPin, checkPin: checkPin, setSound: setSound,
-    exportJSON: exportJSON, importJSON: importJSON, factoryReset: factoryReset
+    exportJSON: exportJSON, importJSON: importJSON, factoryReset: factoryReset,
+    syncConfig: syncConfig, setSyncConfig: setSyncConfig, outbox: outbox, lastSync: lastSync
   };
 })(window);
