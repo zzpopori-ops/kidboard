@@ -509,6 +509,129 @@
   function outbox() { return data.outbox.slice(); }
   function lastSync() { return data.lastSyncAt; }
 
+  /** 이 기기를 가리키는 id. 없으면 한 번 만들어 저장해 둔다(브라우저 storage에, data 가 아니라) */
+  function deviceId() {
+    try {
+      var id = global.localStorage.getItem(KEY + '.device');
+      if (!id) {
+        id = uid('dev');
+        global.localStorage.setItem(KEY + '.device', id);
+      }
+      return id;
+    } catch (e) {
+      return uid('dev'); // storage 를 못 쓰면 매번 새로 만든다 — 최악의 경우에도 죽지는 않는다
+    }
+  }
+
+  /**
+   * 서버가 준 상태로 데이터 칸만 덮어쓴다.
+   * sync 설정·outbox 큐·lastSyncAt 은 이 기기의 것이라 보존해야 한다 —
+   * 서버 응답에는 애초에 그 값들이 없다.
+   */
+  function adoptServerState(state) {
+    if (!state) return;
+    var keep = { sync: data.sync, outbox: data.outbox, lastSyncAt: data.lastSyncAt };
+    data = Object.assign({}, defaults(), state, keep);
+  }
+
+  /**
+   * server/state.js 의 apply() 와 같은 규칙을 클라이언트에서 그대로 따라한다.
+   * 여기서는 enqueue 를 부르지 않는다 — 이미 큐에 있던(또는 서버에서 온) 작업을
+   * 화면 상태에 다시 얹는 것뿐이라 새 op 를 만들면 안 된다.
+   */
+  function applyLocally(op) {
+    var p = (op && op.payload) || {};
+    if (op.type === 'homework.add') { data.homework.push(p); return; }
+    if (op.type === 'homework.setDone') {
+      data.homework.forEach(function (w) { if (w.id === p.id) w.doneOn = p.doneOn || null; });
+      return;
+    }
+    if (op.type === 'homework.move') {
+      data.homework.forEach(function (w) { if (w.id === p.id) w.date = p.date; });
+      return;
+    }
+    if (op.type === 'homework.remove') {
+      data.homework = data.homework.filter(function (w) { return w.id !== p.id; });
+      return;
+    }
+    if (op.type === 'habit.toggle') {
+      if (!data.progress[p.childId]) data.progress[p.childId] = {};
+      if (!data.progress[p.childId][p.date]) data.progress[p.childId][p.date] = [];
+      var list = data.progress[p.childId][p.date];
+      var at = list.indexOf(p.habitId);
+      if (p.done && at === -1) list.push(p.habitId);
+      if (!p.done && at !== -1) list.splice(at, 1);
+      return;
+    }
+    if (op.type === 'bonus.add') { data.bonuses.push(p); return; }
+    if (op.type === 'redemption.add') { data.redemptions.push(p); return; }
+    ['habit', 'template', 'reward', 'child'].forEach(function (kind) {
+      var listName = kind === 'child' ? 'children' : kind + 's';
+      if (op.type === kind + '.upsert') {
+        var found = false;
+        data[listName] = (data[listName] || []).map(function (x) {
+          if (x.id === p.id) { found = true; return Object.assign({}, x, p); }
+          return x;
+        });
+        if (!found) data[listName].push(p);
+      }
+      if (op.type === kind + '.remove') {
+        data[listName] = (data[listName] || []).filter(function (x) { return x.id !== p.id; });
+      }
+    });
+    // 모르는 종류는 조용히 무시한다 — 서버와 같은 규칙
+  }
+
+  /** 서버에 밀어 올리고 받아온다. 실패는 조용히 큐에 남긴다. */
+  function syncNow() {
+    var cfg = data.sync;
+    if (!cfg || !cfg.url) return Promise.resolve({ ok: false, reason: '동기화가 설정되지 않았습니다.' });
+
+    var sending = data.outbox.slice();
+    return fetch(cfg.url + '/api/sync', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.token },
+      body: JSON.stringify({ deviceId: deviceId(), ops: sending })
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (r) {
+      if (r.status === 409) return { ok: false, reason: r.body.msg || '서버가 초기화되지 않았습니다.', empty: true };
+      if (r.status !== 200) return { ok: false, reason: r.body && r.body.msg ? r.body.msg : '동기화에 실패했습니다.' };
+
+      // 서버가 받았다고 한 것만 큐에서 지운다. 나머지는 다음 기회에 다시 보낸다.
+      var ok = {};
+      (r.body.accepted || []).forEach(function (id) { ok[id] = true; });
+      data.outbox = data.outbox.filter(function (op) { return !ok[op.opId]; });
+
+      // 서버 상태를 받아들이고, 아직 못 올린 작업을 그 위에 다시 얹는다.
+      var pending = data.outbox.slice();
+      adoptServerState(r.body.state);
+      pending.forEach(function (op) { applyLocally(op); });
+
+      data.lastSyncAt = new Date().toISOString();
+      save();
+      return { ok: true, applied: (r.body.accepted || []).length };
+    }).catch(function () {
+      // 맥북이 꺼져 있거나 집 밖이다. 큐는 그대로 두고 다음에 다시 보낸다.
+      return { ok: false, reason: '서버에 닿지 못했습니다.' };
+    });
+  }
+
+  /** 이 기기 데이터로 서버를 처음 채운다. 부모가 명시적으로 누를 때만 부른다. */
+  function seedServer() {
+    var cfg = data.sync;
+    if (!cfg || !cfg.url) return Promise.resolve({ ok: false, msg: '동기화가 설정되지 않았습니다.' });
+    var snapshot = JSON.parse(JSON.stringify(data));
+    delete snapshot.sync; delete snapshot.outbox; delete snapshot.lastSyncAt;
+    return fetch(cfg.url + '/api/seed', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.token },
+      body: JSON.stringify({ state: snapshot })
+    }).then(function (r) { return r.json(); })
+      .then(function (b) { if (b.ok) { data.outbox = []; save(); } return b; })
+      .catch(function () { return { ok: false, msg: '서버에 닿지 못했습니다.' }; });
+  }
+
   global.KB = global.KB || {};
   global.KB.store = {
     VISIBLE: VISIBLE,
@@ -527,6 +650,7 @@
     upsert: upsert, remove: remove,
     setPin: setPin, checkPin: checkPin, setSound: setSound,
     exportJSON: exportJSON, importJSON: importJSON, factoryReset: factoryReset,
-    syncConfig: syncConfig, setSyncConfig: setSyncConfig, outbox: outbox, lastSync: lastSync
+    syncConfig: syncConfig, setSyncConfig: setSyncConfig, outbox: outbox, lastSync: lastSync,
+    syncNow: syncNow, seedServer: seedServer
   };
 })(window);
