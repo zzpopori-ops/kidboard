@@ -303,3 +303,163 @@ S.factoryReset();
   assert(!(persisted.progress.c1 && persisted.progress.c1[today] && persisted.progress.c1[today].length),
          '저장소에도 오늘 체크가 남아있으면 안 된다');
 }
+
+console.log('[22] templateBlanks — 템플릿 글에서 빈칸 이름을 순서대로 뽑는다');
+S.factoryReset();
+{
+  const t = { text: '수학리더 개념 1-2 {시작}~{끝}페이지' };
+  assert(JSON.stringify(S.templateBlanks(t)) === JSON.stringify(['시작', '끝']), '시작, 끝 순서대로');
+  assert(S.templateBlanks({ text: '받아쓰기 10문제' }).length === 0, '빈칸이 없으면 빈 배열');
+}
+
+console.log('[23] buildHomeworkLabel — 만들지 않고 미리보기 글만 만든다');
+S.factoryReset();
+{
+  const t = { emoji: '📕', text: '수학리더 개념 1-2 {시작}~{끝}페이지' };
+  assert(S.buildHomeworkLabel(t, { 시작: '50', 끝: '55' }) === '수학리더 개념 1-2 50~55페이지', '둘 다 있으면 범위');
+  assert(S.buildHomeworkLabel(t, { 시작: '50', 끝: '' }) === '수학리더 개념 1-2 50페이지', '끝이 비면 ~{끝} 이 통째로 사라진다 (50~50 아님)');
+  assert(S.homeworkOf('c1').length === 0, '미리보기는 숙제를 만들지 않는다');
+}
+
+console.log('[24] createHomeworkFromTemplate — 정상 범위로 생성하면 nextStart 가 (끝+1) 로 넘어간다');
+S.factoryReset();
+{
+  const before = S.homeworkOf('c1').length;
+  const res = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '1', 끝: '6' }, '2026-09-14');
+  assert(res.ok === true, '정상 입력은 성공');
+  assert(res.item.label === '수학리더 개념 1-2 1~6페이지', '라벨이 정확히 만들어진다');
+  assert(res.item.emoji === '📕', '템플릿의 이모지를 그대로 쓴다');
+  assert(res.item.stars === 1, 'addHomework 를 거쳐 별은 1개 고정');
+  assert(S.homeworkOf('c1').length === before + 1, '숙제가 실제로 추가된다');
+  const tpl = S.templates().find(x => x.id === 'tpl1');
+  assert(tpl.nextStart === 7, 'nextStart 는 끝(6)+1 = 7');
+}
+
+console.log('[25] createHomeworkFromTemplate — 끝을 비우면 한 페이지짜리 숙제, nextStart 는 시작+1');
+S.factoryReset();
+{
+  const res = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '10', 끝: '' }, '2026-09-14');
+  assert(res.ok === true, '끝이 비어도 성공');
+  assert(res.item.label === '수학리더 개념 1-2 10페이지', '10~10페이지가 아니라 10페이지');
+  const tpl = S.templates().find(x => x.id === 'tpl1');
+  assert(tpl.nextStart === 11, 'nextStart 는 시작(10)+1 = 11');
+}
+
+console.log('[26] createHomeworkFromTemplate — 시작을 덮어써서 복습해도 규칙은 하나뿐이다');
+S.factoryReset();
+{
+  S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '40', 끝: '45' }, '2026-09-14');
+  assert(S.templates().find(x => x.id === 'tpl1').nextStart === 46, '진행이 46으로 감');
+
+  // 부모가 복습하려고 시작을 20으로 덮어씀 — 별도의 "복습 모드"가 아니라
+  // 그냥 그 값이 그대로 쓰이고 nextStart 도 거기서 다시 이어진다
+  const res = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '20', 끝: '25' }, '2026-09-15');
+  assert(res.ok === true, '복습 입력도 정상 성공');
+  assert(res.item.label === '수학리더 개념 1-2 20~25페이지', '덮어쓴 값 그대로 라벨이 된다');
+  assert(S.templates().find(x => x.id === 'tpl1').nextStart === 26, 'nextStart 는 46이 아니라 26으로 재조정된다');
+}
+
+console.log('[27] createHomeworkFromTemplate — 앞으로 건너뛰기도 같은 규칙으로 동작한다');
+S.factoryReset();
+{
+  S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '1', 끝: '5' }, '2026-09-14');
+  assert(S.templates().find(x => x.id === 'tpl1').nextStart === 6, '진행이 6으로 감');
+
+  const res = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '100', 끝: '105' }, '2026-09-15');
+  assert(res.ok === true, '건너뛰기도 성공');
+  assert(S.templates().find(x => x.id === 'tpl1').nextStart === 106, 'nextStart 는 건너뛴 값 기준으로 이어진다');
+}
+
+console.log('[28] createHomeworkFromTemplate — 템플릿마다 진행이 독립적이다');
+S.factoryReset();
+{
+  S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '1', 끝: '6' }, '2026-09-14');
+  const tpl1 = S.templates().find(x => x.id === 'tpl1');
+  const tpl4 = S.templates().find(x => x.id === 'tpl4');
+  assert(tpl1.nextStart === 7, '개념(tpl1)은 진행됨');
+  assert(!tpl4.nextStart, '백전백승(tpl4)은 건드리지 않아 여전히 진행 기록이 없다');
+}
+
+console.log('[29] createHomeworkFromTemplate — 검증 오류 세 가지는 만들지 않고 메시지만 돌려준다');
+S.factoryReset();
+{
+  const before = S.homeworkOf('c1').length;
+
+  const noStart = S.createHomeworkFromTemplate('c1', 'tpl1', { 끝: '5' }, '2026-09-14');
+  assert(noStart.ok === false && typeof noStart.msg === 'string' && noStart.msg.length > 0, '시작이 없으면 오류');
+
+  const badStart = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '-3', 끝: '5' }, '2026-09-14');
+  assert(badStart.ok === false, '시작이 양의 정수가 아니면 오류');
+
+  const badEnd = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '1', 끝: '0' }, '2026-09-14');
+  assert(badEnd.ok === false, '끝이 양의 정수가 아니면 오류');
+
+  const endBeforeStart = S.createHomeworkFromTemplate('c1', 'tpl1', { 시작: '10', 끝: '5' }, '2026-09-14');
+  assert(endBeforeStart.ok === false, '끝이 시작보다 빠르면 오류');
+
+  assert(S.homeworkOf('c1').length === before, '오류가 나면 숙제가 하나도 안 만들어진다');
+  assert(!S.templates().find(x => x.id === 'tpl1').nextStart, '오류가 나면 nextStart 도 안 바뀐다');
+}
+
+console.log('[30] load() — 예전 기본 템플릿 2개는 새 4개로 마이그레이션된다 (별은 안 건드린다)');
+{
+  const oldInstall = {
+    version: 2, pin: '1234', sound: true,
+    children: [{ id: 'c1', name: '첫째', emoji: '🐯', color: '#3D7EA6', canRead: true }],
+    habits: [{ id: 'h1', childId: 'c1', emoji: '🪥', label: '이 닦기', stars: 1, days: [0,1,2,3,4,5,6] }],
+    homework: [{ id: 'hw1', childId: 'c1', emoji: '📕', label: '수학 1~5쪽', date: '2026-09-01', stars: 1, doneOn: '2026-09-01' }],
+    templates: [
+      { id: 'tpl1', emoji: '📕', text: '수학 문제집 {}~{}쪽' },
+      { id: 'tpl2', emoji: '✏️', text: '받아쓰기 {}문제' }
+    ],
+    rewards: [{ id: 'r1', emoji: '🍦', label: '아이스크림', cost: 10 }],
+    progress: { c1: { '2026-09-01': ['h1'] } },
+    bonuses: [{ id: 'b1', childId: 'c1', amount: 2, memo: '옛 보너스', at: '2026-09-01T00:00:00.000Z' }],
+    redemptions: []
+  };
+  mem['kidboard.v2'] = JSON.stringify(oldInstall);
+
+  const starsBefore = (function () {
+    // 마이그레이션 전 값을 별도 계산 없이, 로드 후와 비교하기 위해 로드부터 한다
+    return null;
+  })();
+
+  S.load();
+
+  const tpls = S.templates();
+  assert(tpls.length === 4, '템플릿이 옛 2개에서 새 4개로 바뀐다');
+  assert(tpls.map(t => t.id).join(',') === 'tpl1,tpl2,tpl3,tpl4', 'id 순서도 새 기본값과 같다');
+  assert(tpls[0].text === '수학리더 개념 1-2 {시작}~{끝}페이지', '새 tpl1 문구');
+  assert(tpls[3].text === '수학리더 백전백승 book2 1-2 {시작}~{끝}페이지', '새 tpl4 문구');
+
+  assert(S.children().length === 1 && S.getChild('c1').name === '첫째', '아이 정보는 그대로');
+  assert(S.homeworkOf('c1').length === 1 && S.homeworkOf('c1')[0].id === 'hw1', '숙제 기록은 그대로');
+  assert(S.doneIds('c1', '2026-09-01').indexOf('h1') !== -1, '습관 진행 기록도 그대로');
+  assert(S.all().bonuses.length === 1 && S.all().bonuses[0].id === 'b1', '보너스 기록도 그대로');
+  assert(S.starsOf('c1') === 1 /*숙제*/ + 1 /*습관*/ + 2 /*보너스*/, '별 계산도 예전 그대로 — 마이그레이션이 별에 영향을 주지 않는다');
+
+  const persisted = JSON.parse(mem['kidboard.v2']);
+  assert(persisted.templates.length === 4, '마이그레이션 결과가 저장소에도 곧바로 반영된다');
+}
+
+console.log('[31] load() — 이미 새 템플릿이거나 부모가 손댄 템플릿은 건드리지 않는다');
+{
+  const customInstall = {
+    version: 2, pin: '1234', sound: true,
+    children: [{ id: 'c1', name: '첫째', emoji: '🐯', color: '#3D7EA6', canRead: true }],
+    habits: [],
+    homework: [],
+    templates: [
+      { id: 'tpl1', emoji: '📕', text: '수학 문제집 {}~{}쪽' }   // 하나뿐 — 옛 기본 2종 세트와 다름
+    ],
+    rewards: [],
+    progress: {}, bonuses: [], redemptions: []
+  };
+  mem['kidboard.v2'] = JSON.stringify(customInstall);
+  S.load();
+  assert(S.templates().length === 1 && S.templates()[0].text === '수학 문제집 {}~{}쪽',
+         '옛 기본 2종 세트와 정확히 일치하지 않으면(=이미 손댄 것으로 보고) 그대로 둔다');
+}
+
+S.factoryReset();
+console.log('테스트 끝, 되돌려 둠');

@@ -41,8 +41,10 @@
       ],
       homework: [],
       templates: [
-        { id: 'tpl1', emoji: '📕', text: '수학 문제집 {}~{}쪽' },
-        { id: 'tpl2', emoji: '✏️', text: '받아쓰기 {}문제' }
+        { id: 'tpl1', emoji: '📕', text: '수학리더 개념 1-2 {시작}~{끝}페이지' },
+        { id: 'tpl2', emoji: '📗', text: '수학리더 개념 평가책 book2 1-2 {시작}~{끝}페이지' },
+        { id: 'tpl3', emoji: '📘', text: '수학리더 기본 지피지기 book1 1-2 {시작}~{끝}페이지' },
+        { id: 'tpl4', emoji: '📙', text: '수학리더 백전백승 book2 1-2 {시작}~{끝}페이지' }
       ],
       rewards: [
         { id: 'r1', emoji: '🍦', label: '아이스크림', cost: 10 },
@@ -57,6 +59,22 @@
 
   var data = defaults();
 
+  // 예전(v2 초기) 기본 템플릿 2종 — 템플릿 편집기가 아직 없어서, 저장된 값이
+  // 이 모양 그대로라면 부모가 손댄 적이 없다는 뜻이다. load() 에서 한 번만
+  // 새 4종 기본값으로 갈아끼운다. children/homework/progress 등은 이 판단과
+  // 무관하게 절대 건드리지 않는다 — 별 계산에 쓰이는 값들이라서다.
+  function isUntouchedOldTemplates(list) {
+    var old = [
+      { id: 'tpl1', emoji: '📕', text: '수학 문제집 {}~{}쪽' },
+      { id: 'tpl2', emoji: '✏️', text: '받아쓰기 {}문제' }
+    ];
+    if (!Array.isArray(list) || list.length !== old.length) return false;
+    return old.every(function (o, i) {
+      var t = list[i];
+      return t && t.id === o.id && t.emoji === o.emoji && t.text === o.text;
+    });
+  }
+
   function load() {
     try {
       var raw = global.localStorage.getItem(KEY);
@@ -67,7 +85,10 @@
           if (parsed[k] !== undefined) base[k] = parsed[k];
         });
         base.version = defaults().version;
+        var migrated = isUntouchedOldTemplates(base.templates);
+        if (migrated) base.templates = defaults().templates;
         data = base;
+        if (migrated) save();
       } else {
         data = defaults();
         save();
@@ -291,6 +312,78 @@
     save();
   }
 
+  /** 템플릿 글에서 {이름} 빈칸의 이름만 등장 순서대로 뽑는다 — 화면이 이 이름을 입력칸 라벨로 쓴다 */
+  function templateBlanks(t) {
+    var text = (t && t.text) || '';
+    var names = [];
+    var re = /\{([^{}]+)\}/g, m;
+    while ((m = re.exec(text))) names.push(m[1]);
+    return names;
+  }
+
+  /**
+   * 만들지 않고 라벨만 미리 계산한다 — 부모가 타이핑하는 동안 화면이 그대로 보여준다.
+   * {시작}~{끝} 은 끝이 비어 있으면 통째로 사라지고 시작 값 하나만 남는다.
+   * ('50~50페이지'가 아니라 '50페이지' — 한 쪽짜리 숙제이기 때문)
+   */
+  function buildHomeworkLabel(t, values) {
+    var text = (t && t.text) || '';
+    values = values || {};
+    var start = values['시작'];
+    var end = values['끝'];
+    if (/\{시작\}~\{끝\}/.test(text) && (end === undefined || end === null || end === '')) {
+      text = text.replace(/\{시작\}~\{끝\}/g, (start === undefined || start === null) ? '' : String(start));
+    }
+    return text.replace(/\{([^{}]+)\}/g, function (_, name) {
+      var v = values[name];
+      return (v === undefined || v === null) ? '' : String(v);
+    });
+  }
+
+  function isPositiveInt(v) {
+    var n = Number(v);
+    return Number.isInteger(n) && n > 0;
+  }
+
+  /** 시작/끝 값이 숙제로 만들 수 있는 값인지 — 문제가 있으면 토스트에 바로 쓸 한국어 메시지를 돌려준다 */
+  function validateTemplateValues(values) {
+    values = values || {};
+    var startRaw = values['시작'];
+    if (startRaw === undefined || startRaw === null || startRaw === '' || !isPositiveInt(startRaw)) {
+      return '시작 쪽수를 올바르게 입력해 주세요.';
+    }
+    var endRaw = values['끝'];
+    if (endRaw !== undefined && endRaw !== null && endRaw !== '') {
+      if (!isPositiveInt(endRaw)) return '끝 쪽수를 올바르게 입력해 주세요.';
+      if (Number(endRaw) < Number(startRaw)) return '끝 쪽수가 시작 쪽수보다 빠를 수 없어요.';
+    }
+    return null;
+  }
+
+  /**
+   * 템플릿 + 입력값으로 숙제를 실제로 만든다.
+   * 검증에 실패하면 아무것도 만들지 않고 { ok:false, msg } 만 돌려준다 (throw 안 함).
+   * 성공하면 그 템플릿의 nextStart 를 (끝 ?? 시작) + 1 로 옮겨 다음에 이어 쓸 수 있게 한다.
+   * 부모가 시작을 덮어써서 복습/건너뛰기를 해도 규칙은 이거 하나뿐 — 별도 모드 없음.
+   */
+  function createHomeworkFromTemplate(childId, templateId, values, date) {
+    var t = data.templates.filter(function (x) { return x.id === templateId; })[0];
+    if (!t) return { ok: false, msg: '템플릿을 찾을 수 없습니다.' };
+    var err = validateTemplateValues(values);
+    if (err) return { ok: false, msg: err };
+
+    var label = buildHomeworkLabel(t, values);
+    var item = addHomework({ childId: childId, emoji: t.emoji, label: label, date: date });
+
+    var start = Number(values['시작']);
+    var endRaw = values['끝'];
+    var end = (endRaw !== undefined && endRaw !== null && endRaw !== '') ? Number(endRaw) : null;
+    t.nextStart = (end !== null ? end : start) + 1;
+    save();
+
+    return { ok: true, item: item, nextStart: t.nextStart };
+  }
+
   function addBonus(childId, amount, memo) {
     var applied = amount;
     if (amount < 0) {
@@ -385,6 +478,8 @@
     addHomework: addHomework, setHomeworkDone: setHomeworkDone,
     moveHomework: moveHomework, removeHomework: removeHomework,
     addTemplate: addTemplate, removeTemplate: removeTemplate,
+    templateBlanks: templateBlanks, buildHomeworkLabel: buildHomeworkLabel,
+    validateTemplateValues: validateTemplateValues, createHomeworkFromTemplate: createHomeworkFromTemplate,
     starsOf: starsOf, addBonus: addBonus, redeem: redeem,
     upsert: upsert, remove: remove,
     setPin: setPin, checkPin: checkPin, setSound: setSound,
