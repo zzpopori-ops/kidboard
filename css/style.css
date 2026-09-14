@@ -531,3 +531,34 @@ button { font-family: inherit; cursor: pointer; }
 .hwrow.is-late { border-color: var(--berry); }
 .hwrow__date { font-size: 13px; color: var(--ink-soft); font-weight: 800; min-width: 44px; }
 .hwrow__label { flex: 1; font-weight: 700; word-break: keep-all; }
+
+/* ---------- 숙제 템플릿 ---------- */
+.tpls { display: flex; flex-wrap: wrap; gap: 8px; }
+.tpls .mini.is-on { background: var(--ink); color: #fff; }
+
+.tplopen {
+  display: grid; gap: 10px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+}
+.tplopen__fields { display: flex; flex-wrap: wrap; gap: 12px; }
+.tplfld { display: grid; gap: 4px; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
+.tplfld input {
+  width: 92px; padding: 10px;
+  border: 2px solid var(--ink); border-radius: 8px;
+  font-size: 16px; color: var(--ink);
+}
+/* 안전망일 뿐 주인공이 아니므로 작고 조용하게 둔다 */
+.tplpreview { margin: 0; font-size: 13px; color: var(--ink-soft); }
+
+.tplmgmt { display: grid; gap: 8px; margin-top: 4px; }
+.tplmgmt__emoji {
+  width: 52px; padding: 10px; text-align: center;
+  border: 2px solid var(--ink); border-radius: 8px; font-size: 18px;
+}
+.tplmgmt__text {
+  flex: 1 1 160px; padding: 10px;
+  border: 2px solid var(--ink); border-radius: 8px; font-size: 15px;
+}

@@ -345,16 +345,157 @@ test('[11] 부모 화면에서는 밀린 숙제 전부가 보인다', async () =
   expect(await page.locator('.hwrow').count()).toBeGreaterThanOrEqual(7);
 });
 
-test('[12] 템플릿을 누르면 입력칸이 채워지고 빈칸만 남는다', async () => {
+test('[12] 템플릿을 누르면 빈칸 이름별로 입력칸이 열리고 첫 칸이 nextStart로 채워진다', async () => {
   // 다른 테스트가 화면을 어디에 남겨뒀는지에 기대지 않도록 직접 이동한다
-  await page.evaluate(() => KB.app.go('admin'));
+  await page.evaluate(() => {
+    const t = KB.store.all().templates.find(x => x.id === 'tpl1');
+    t.nextStart = 50;
+    KB.store.save();
+    KB.app.go('admin');
+  });
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+
+  // 접혀 있을 때는 빈칸 입력칸이 아예 없어야 한다
+  expect(await page.locator('.tplblank').count(), '펼치기 전에는 입력칸이 없다').toBe(0);
+
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.waitForSelector('.tplblank');
+
+  const labels = await page.locator('.tplfld span').allInnerTexts();
+  expect(labels, '빈칸 이름 그대로 라벨이 된다').toEqual(['시작', '끝']);
+
+  const values = await page.locator('.tplblank').evaluateAll(els => els.map(e => e.value));
+  expect(values[0], '첫 칸은 nextStart로 미리 채워진다').toBe('50');
+  expect(values[1], '둘째 칸은 비어 있다').toBe('');
+
+  // 같은 템플릿을 다시 누르면 접힌다
+  await page.locator('[data-act="tpl-use"]').first().click();
+  expect(await page.locator('.tplblank').count(), '다시 누르면 접힌다').toBe(0);
+});
+
+test('[12b] 끝 쪽수만 입력하고 추가를 누르면 숙제가 만들어지고 아이 화면에도 보인다', async () => {
+  await page.evaluate(() => {
+    const t = KB.store.all().templates.find(x => x.id === 'tpl1');
+    t.nextStart = 50;
+    KB.store.save();
+    KB.store.all().homework = []; // 밀린 것에 기대지 않도록 비운다
+    KB.app.go('admin');
+  });
   await page.locator('[data-act="tab"][data-id="homework"]').click();
   await page.waitForSelector('[data-act="tpl-use"]');
 
   await page.locator('[data-act="tpl-use"]').first().click();
-  const v = await page.inputValue('#hw-label');
-  expect(v, '템플릿 문구가 입력칸에 들어간다').toContain('수학 문제집');
-  expect(v, '빈칸 표시가 남아 있다').toContain('{}');
+  await page.waitForSelector('.tplblank');
+  // 시작 칸은 손대지 않고 끝 칸만 채운다 — 이게 이 기능의 핵심이다
+  await page.locator('.tplblank').nth(1).fill('55');
+  await page.locator('[data-act="tpl-add"]').click();
+
+  const created = await page.evaluate(() => KB.store.homeworkOf('c1'));
+  expect(created.length, '숙제 1개가 만들어진다').toBe(1);
+  expect(created[0].label, '시작~끝 라벨').toBe('수학리더 개념 1-2 50~55페이지');
+
+  // 다음에 열면 nextStart가 56으로 이어져야 한다
+  const nextStart = await page.evaluate(() => KB.store.all().templates.find(x => x.id === 'tpl1').nextStart);
+  expect(nextStart, '다음 시작은 끝+1').toBe(56);
+
+  await page.locator('[data-act="home"]').first().click();
+  await page.waitForSelector('.hw');
+  const kidLabels = await page.locator('.hw__label').allInnerTexts();
+  expect(kidLabels, '아이 화면에도 즉시 보인다').toContain('수학리더 개념 1-2 50~55페이지');
+});
+
+test('[12c] 끝을 비운 채 추가하면 한 쪽짜리 라벨로 만들어진다', async () => {
+  await page.evaluate(() => {
+    const t = KB.store.all().templates.find(x => x.id === 'tpl1');
+    t.nextStart = 60;
+    KB.store.save();
+    KB.app.go('admin');
+  });
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+  const before = await page.evaluate(() => KB.store.homeworkOf('c1').length);
+
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.waitForSelector('.tplblank');
+  await expect(page.locator('#tpl-preview')).toContainText('60페이지');
+  await page.locator('[data-act="tpl-add"]').click();
+
+  const after = await page.evaluate(() => KB.store.homeworkOf('c1'));
+  expect(after.length, '숙제가 1개 늘어난다').toBe(before + 1);
+  expect(after[after.length - 1].label, '~ 없이 한 쪽짜리 라벨').toBe('수학리더 개념 1-2 60페이지');
+});
+
+test('[12d] 끝이 시작보다 빠르면 토스트만 뜨고 숙제가 생기지 않는다', async () => {
+  await page.evaluate(() => {
+    const t = KB.store.all().templates.find(x => x.id === 'tpl1');
+    t.nextStart = 50;
+    KB.store.save();
+    KB.app.go('admin');
+  });
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+  const before = await page.evaluate(() => KB.store.homeworkOf('c1').length);
+
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.waitForSelector('.tplblank');
+  await page.locator('.tplblank').nth(1).fill('10'); // 시작(50)보다 빠른 끝
+  await page.locator('[data-act="tpl-add"]').click();
+
+  await expect(page.locator('#toast')).toContainText('끝 쪽수가 시작 쪽수보다 빠를 수 없어요.');
+  const after = await page.evaluate(() => KB.store.homeworkOf('c1').length);
+  expect(after, '검증에 실패하면 아무것도 만들지 않는다').toBe(before);
+
+  // 검증 실패는 렌더를 다시 하지 않으므로 패널이 열린 채로 남는다 — 뒤 테스트를 위해 닫아 둔다
+  await page.locator('[data-act="tpl-use"]').first().click();
+});
+
+test('[12e] 템플릿 빈칸은 숫자 키패드가 뜨도록 inputmode=numeric 이다', async () => {
+  await page.evaluate(() => KB.app.go('admin'));
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tpl-use"]');
+  await page.locator('[data-act="tpl-use"]').first().click();
+  await page.waitForSelector('.tplblank');
+
+  const attrs = await page.locator('.tplblank').first().evaluate(el => ({
+    type: el.getAttribute('type'),
+    inputmode: el.getAttribute('inputmode')
+  }));
+  expect(attrs.type).toBe('number');
+  expect(attrs.inputmode).toBe('numeric');
+
+  // 닫아서 뒤 테스트에 영향을 남기지 않는다
+  await page.locator('[data-act="tpl-use"]').first().click();
+});
+
+test('[12f] 템플릿 관리에서 새 템플릿을 추가하고 삭제할 수 있다', async () => {
+  await page.evaluate(() => KB.app.go('admin'));
+  await page.locator('[data-act="tab"][data-id="homework"]').click();
+  await page.waitForSelector('[data-act="tplmgmt-toggle"]');
+
+  // 접혀 있을 때는 관리 폼이 없어야 한다
+  expect(await page.locator('#tplmgmt-text').count(), '펼치기 전에는 관리 폼이 없다').toBe(0);
+
+  await page.locator('[data-act="tplmgmt-toggle"]').click();
+  await page.waitForSelector('#tplmgmt-text');
+
+  const before = await page.evaluate(() => KB.store.templates().length);
+  await page.fill('#tplmgmt-emoji', '📓');
+  await page.fill('#tplmgmt-text', '국어 받아쓰기 {시작}~{끝}문제');
+  await page.locator('[data-act="tplmgmt-add"]').click();
+
+  const afterAdd = await page.evaluate(() => KB.store.templates());
+  expect(afterAdd.length, '템플릿이 하나 늘어난다').toBe(before + 1);
+  const added = afterAdd[afterAdd.length - 1];
+  expect(added.text).toBe('국어 받아쓰기 {시작}~{끝}문제');
+
+  // 삭제 — 확인 대화상자를 거친다
+  await page.locator('[data-act="tplmgmt-del"][data-id="' + added.id + '"]').click();
+  await page.waitForSelector('[data-yes]');
+  await page.locator('[data-yes]').click();
+
+  const afterDel = await page.evaluate(() => KB.store.templates().length);
+  expect(afterDel, '삭제 확인 후 다시 줄어든다').toBe(before);
 });
 
 test('[13b] 빈칸을 안 채우고 추가를 누르면 {} 가 그대로 아이 화면에 나가지 않는다', async () => {

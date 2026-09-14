@@ -17,6 +17,8 @@
 
   // 숙제는 부모가 매일 쓰는 탭이라 맨 앞 · 기본 탭으로 둔다
   var tab = 'homework';
+  var openTplId = null;     // 지금 펼쳐진 템플릿 — 탭을 열 때마다 다시 고르지 않도록 렌더 사이에 유지
+  var tplMgmtOpen = false;  // 템플릿 관리는 매일 쓰는 화면이 아니라 접어둔다
 
   function screen() { return $('#screen'); }
 
@@ -40,6 +42,7 @@
       '<section class="panel">' + panelHTML() + '</section>';
 
     if (tab === 'data') wireData();
+    if (tab === 'homework') wireHomeworkPanel();
   }
 
   function panelHTML() {
@@ -75,9 +78,11 @@
         '</div>';
     }).join('');
 
-    // 템플릿을 눌러 문구를 채우고 숫자만 바꿔 넣게 한다 — 매일 같은 문구를 다시 치지 않도록
+    // 템플릿을 눌러 이름 붙은 빈칸만 채우게 한다 — 쪽수 두 개 말고는 매일 똑같은 문구라서
+    var openTpl = store.templates().filter(function (t) { return t.id === openTplId; })[0];
     var tpls = store.templates().map(function (t) {
-      return '<button class="mini" data-act="tpl-use" data-id="' + esc(t.id) + '">' +
+      return '<button class="mini' + (t.id === openTplId ? ' is-on' : '') +
+             '" data-act="tpl-use" data-id="' + esc(t.id) + '">' +
                esc(t.emoji) + ' ' + esc(t.text) + '</button>';
     }).join('');
 
@@ -85,11 +90,80 @@
       '<div class="row"><label>날짜</label>' +
         '<input type="date" id="hw-date" value="' + esc(today) + '"></div>' +
       '<div class="row"><label>템플릿</label><div class="tpls">' + tpls + '</div></div>' +
+      (openTpl ? templateOpenHTML(openTpl) : '') +
+      '<div class="row"><label>또는 직접 입력</label></div>' +
       '<div class="row"><label>숙제</label>' +
-        '<input type="text" id="hw-label" placeholder="예: 수학 문제집 1~5쪽"></div>' +
+        '<input type="text" id="hw-label" placeholder="예: 일기 쓰기"></div>' +
       '<button class="btn btn--add" data-act="hw-add">추가</button>' +
       '<h3 class="sect">아직 안 한 숙제 (' + list.length + '개)</h3>' +
-      (rows || '<p class="empty">없습니다.</p>');
+      (rows || '<p class="empty">없습니다.</p>') +
+      '<button class="btn btn--ghost" data-act="tplmgmt-toggle">템플릿 관리 ' + (tplMgmtOpen ? '▲' : '▼') + '</button>' +
+      (tplMgmtOpen ? tplMgmtHTML() : '');
+  }
+
+  /**
+   * 펼쳐진 템플릿의 빈칸 입력 폼.
+   * 빈칸 이름은 templateBlanks 로 뽑아 라벨로 그대로 쓴다 — 시작/끝처럼
+   * 이름이 뜻을 담고 있는데 칸을 두 개로 하드코딩하면 그 뜻이 사라진다.
+   */
+  function templateOpenHTML(t) {
+    var blanks = store.templateBlanks(t);
+    var hasNext = t.nextStart !== undefined && t.nextStart !== null;
+    var previewValues = {};
+    var fields = blanks.map(function (name, i) {
+      // 첫 빈칸만 nextStart 로 채운다 — 부모는 끝 쪽수만 타이핑하면 끝나게
+      var val = (i === 0 && hasNext) ? t.nextStart : '';
+      if (val !== '') previewValues[name] = val;
+      return '' +
+        '<label class="tplfld"><span>' + esc(name) + '</span>' +
+          '<input type="number" inputmode="numeric" class="tplblank" ' +
+                 'data-blank="' + esc(name) + '" value="' + esc(val) + '"></label>';
+    }).join('');
+
+    var preview = store.buildHomeworkLabel(t, previewValues);
+    return '' +
+      '<div class="tplopen">' +
+        '<div class="tplopen__fields">' + fields + '</div>' +
+        // 미리보기는 안전망이지, 주인공이 아니다 — 작고 조용하게 둔다
+        '<p class="tplpreview" id="tpl-preview">미리보기: ' + esc(preview) + '</p>' +
+        '<button class="btn btn--add" data-act="tpl-add" data-id="' + esc(t.id) + '">추가</button>' +
+      '</div>';
+  }
+
+  /** 템플릿 빈칸에 타이핑하는 동안 미리보기만 갱신 — 전체를 다시 그리면 입력 중 커서가 날아간다 */
+  function wireHomeworkPanel() {
+    if (!openTplId) return;
+    var t = store.templates().filter(function (x) { return x.id === openTplId; })[0];
+    if (!t) return;
+    function refreshPreview() {
+      var values = {};
+      $$('.tplblank').forEach(function (inp) { values[inp.getAttribute('data-blank')] = inp.value; });
+      var el = $('#tpl-preview');
+      if (el) el.textContent = '미리보기: ' + store.buildHomeworkLabel(t, values);
+    }
+    $$('.tplblank').forEach(function (inp) { inp.addEventListener('input', refreshPreview); });
+  }
+
+  /** 템플릿 관리 — 접혀 있다가 눌러야 보인다. 수정은 없고 삭제 후 다시 추가하게 한다 */
+  function tplMgmtHTML() {
+    var rows = store.templates().map(function (t) {
+      return '' +
+        '<div class="row">' +
+          '<span class="row__emoji">' + esc(t.emoji) + '</span>' +
+          '<span class="row__main"><b>' + esc(t.text) + '</b></span>' +
+          '<button class="mini mini--warn" data-act="tplmgmt-del" data-id="' + esc(t.id) + '">삭제</button>' +
+        '</div>';
+    }).join('');
+
+    return '' +
+      '<div class="tplmgmt">' +
+        (rows || '<p class="empty">템플릿이 없습니다.</p>') +
+        '<div class="row">' +
+          '<input type="text" id="tplmgmt-emoji" class="tplmgmt__emoji" maxlength="2" placeholder="📘">' +
+          '<input type="text" id="tplmgmt-text" class="tplmgmt__text" placeholder="예: 국어 받아쓰기 {시작}~{끝}쪽">' +
+          '<button class="mini" data-act="tplmgmt-add">추가</button>' +
+        '</div>' +
+      '</div>';
   }
 
   // ------------------------------------------------------------
@@ -472,15 +546,41 @@
     if (act === 'hw-del') { store.removeHomework(id); renderAdmin(); return true; }
     if (act === 'hw-today') { store.moveHomework(id, store.dateKey()); renderAdmin(); return true; }
     if (act === 'tpl-use') {
-      var t = store.templates().filter(function (x) { return x.id === id; })[0];
-      var input = $('#hw-label');
-      if (t && input) {
-        input.value = t.text;
-        input.focus();
-        // 첫 빈칸 앞에 커서를 둔다. 숫자만 바꿔 넣으면 끝나게.
-        var at = t.text.indexOf('{}');
-        if (at >= 0) input.setSelectionRange(at, at + 2);
-      }
+      // 같은 템플릿을 다시 누르면 접는다 — 토글
+      openTplId = (openTplId === id) ? null : id;
+      renderAdmin();
+      return true;
+    }
+    if (act === 'tpl-add') {
+      var openT = store.templates().filter(function (x) { return x.id === id; })[0];
+      if (!openT) { ui.toast('템플릿을 찾을 수 없습니다.'); return true; }
+      var values = {};
+      $$('.tplblank').forEach(function (inp) { values[inp.getAttribute('data-blank')] = inp.value; });
+      var hwDate = ($('#hw-date') || {}).value || store.dateKey();
+      var res = store.createHomeworkFromTemplate(store.children()[0].id, id, values, hwDate);
+      if (!res.ok) { ui.toast(res.msg); return true; }
+      openTplId = null;
+      renderAdmin();
+      return true;
+    }
+    if (act === 'tplmgmt-toggle') { tplMgmtOpen = !tplMgmtOpen; renderAdmin(); return true; }
+    if (act === 'tplmgmt-add') {
+      var newEmoji = (($('#tplmgmt-emoji') || {}).value || '').trim() || '📘';
+      var newText = (($('#tplmgmt-text') || {}).value || '').trim();
+      if (!newText) { ui.toast('템플릿 문구를 입력해 주세요.'); return true; }
+      store.addTemplate({ emoji: newEmoji, text: newText });
+      renderAdmin();
+      return true;
+    }
+    if (act === 'tplmgmt-del') {
+      var delT = store.templates().filter(function (x) { return x.id === id; })[0];
+      ui.confirmBox('템플릿 삭제', (delT ? delT.text : '') + ' 템플릿을 삭제할까요?', '삭제').then(function (yes) {
+        if (yes) {
+          store.removeTemplate(id);
+          if (openTplId === id) openTplId = null;
+          renderAdmin();
+        }
+      });
       return true;
     }
     if (act === 'new-child') { childForm(null); return true; }
