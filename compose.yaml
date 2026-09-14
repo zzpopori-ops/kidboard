@@ -49,3 +49,23 @@ services:
 
     # 테스트는 끝나면 종료되는 작업이다. 되살리지 않는다.
     restart: "no"
+
+  sync:
+    build:
+      context: ./server
+    image: kidboard-sync:1
+    # 맥북이 재부팅되거나 Docker 가 다시 떠도 살아난다
+    restart: unless-stopped
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./server/data:/data
+      - ${KB_CERT_DIR:-./server/certs}:/certs:ro
+    command: >
+      node api.js
+      --port 8443
+      --cert /certs/cert.pem
+      --key /certs/key.pem
+      --state /data/state.json
+      --token ${KB_TOKEN:?KB_TOKEN 을 .env 에 넣어야 한다}
+      --origin https://zzpopori-ops.github.io
