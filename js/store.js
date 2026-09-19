@@ -500,9 +500,26 @@
 
   function factoryReset() { data = defaults(); save(); }
 
+  /**
+   * 서버 주소를 저장 직전에 한 곳에서만 정리한다 — 부모가 인증서를 확인하려고
+   * 브라우저에 쳐본 https://호스트:포트/api/ping 을 그대로 복사해 붙여넣는 게
+   * 실수의 8할이다. 끝 슬래시와 /api(/무엇이든) 꼬리를 지워, 어떤 경로를
+   * 붙여넣어도 결국 같은 기준 주소로 모이게 한다.
+   * setSyncConfig 를 거치는 모든 호출자(저장 버튼, 지금 동기화, 서버 채우기)가
+   * 자동으로 이 혜택을 받는다 — 각자 따로 정리할 필요가 없다.
+   */
+  function normalizeSyncUrl(raw) {
+    var u = String(raw == null ? '' : raw).trim();
+    if (!u) return u;
+    u = u.replace(/\/+$/, '');
+    u = u.replace(/\/api(?:\/[^/]*)*$/, ''); // 끝의 /api 또는 /api/무엇이든 을 지운다
+    u = u.replace(/\/+$/, '');
+    return u;
+  }
+
   function syncConfig() { return data.sync || null; }
   function setSyncConfig(cfg) {
-    data.sync = cfg || null;
+    data.sync = cfg && cfg.url ? Object.assign({}, cfg, { url: normalizeSyncUrl(cfg.url) }) : (cfg || null);
     if (!cfg) data.outbox = [];   // 보낼 곳이 없는 큐를 들고 있을 이유가 없다
     save();
   }
@@ -582,11 +599,55 @@
     // 모르는 종류는 조용히 무시한다 — 서버와 같은 규칙
   }
 
+  /**
+   * 데이터 칸만 뽑아 문자열로 만든다 — sync/outbox/lastSyncAt 은 "이 기기 사정"이라
+   * 서버가 준 것과 비교할 대상이 아니다(항상 이 기기 값 그대로라 비교하면 늘
+   * "안 바뀜"을 오염시킨다). 동기화 전후로 이 문자열이 같으면 화면에 보이는
+   * 어떤 것도 안 바뀐 것이라, 다시 그릴 이유가 없다(Defect 1의 (a) 조건).
+   */
+  function serializeForCompare(d) {
+    var copy = Object.assign({}, d);
+    delete copy.sync; delete copy.outbox; delete copy.lastSyncAt;
+    return JSON.stringify(copy);
+  }
+
+  /**
+   * HTTP 상태별로 부모가 다음에 뭘 해야 하는지가 다르다 — 전부 같은 문구로
+   * 뭉뚱그리면("서버에 닿지 못했습니다") 인증서 문제인지 주소 오타인지
+   * 토큰 오타인지 부모가 구분할 수 없다.
+   */
+  function messageForStatus(status, body) {
+    if (status === 401) return '토큰이 올바르지 않습니다. 부모 설정에서 토큰을 다시 확인해 주세요.';
+    if (status === 404) {
+      return '서버 주소가 올바르지 않습니다. 인증서를 확인하려고 브라우저에 열어봤던 ' +
+        '".../api/ping" 주소를 그대로 붙여넣지 않았는지 확인하세요 — 서버 주소만 넣어야 합니다.';
+    }
+    if (status === 409) {
+      return (body && body.msg ? body.msg : '서버가 아직 초기화되지 않았습니다.') +
+        ' 태블릿에서 "서버 채우기"를 눌러 주세요.';
+    }
+    return (body && body.msg) ? body.msg : '동기화에 실패했습니다.';
+  }
+
+  /**
+   * fetch 자체가 reject 됐을 때는 브라우저가 원인을 알려주지 않는다 — 맥북이
+   * 꺼져 있는지, 인증서를 아직 신뢰하지 않는지, 로컬 네트워크 권한을 거절했는지
+   * 코드에서 구분할 방법이 없다. 그래서 하나로 단정하지 않고 셋 다 안내한다.
+   */
+  function messageForNetworkFailure(cfg) {
+    var pingUrl = (cfg && cfg.url ? cfg.url : '') + '/api/ping';
+    return '서버에 연결하지 못했습니다. 다음을 확인해 주세요 — ' +
+      '① 맥북이 꺼져 있거나 잠들어 있지 않은지, ' +
+      '② 이 기기에서 인증서를 아직 신뢰하지 않았는지(이 브라우저로 ' + pingUrl + ' 을 열었을 때 경고가 뜨면 그것입니다), ' +
+      '③ 이 기기에서 로컬 네트워크 권한을 거절하지 않았는지.';
+  }
+
   /** 서버에 밀어 올리고 받아온다. 실패는 조용히 큐에 남긴다. */
   function syncNow() {
     var cfg = data.sync;
     if (!cfg || !cfg.url) return Promise.resolve({ ok: false, reason: '동기화가 설정되지 않았습니다.' });
 
+    var before = serializeForCompare(data);
     var sending = data.outbox.slice();
     return fetch(cfg.url + '/api/sync', {
       method: 'POST',
@@ -595,8 +656,8 @@
     }).then(function (res) {
       return res.json().then(function (body) { return { status: res.status, body: body }; });
     }).then(function (r) {
-      if (r.status === 409) return { ok: false, reason: r.body.msg || '서버가 초기화되지 않았습니다.', empty: true };
-      if (r.status !== 200) return { ok: false, reason: r.body && r.body.msg ? r.body.msg : '동기화에 실패했습니다.' };
+      if (r.status === 409) return { ok: false, reason: messageForStatus(409, r.body), empty: true };
+      if (r.status !== 200) return { ok: false, reason: messageForStatus(r.status, r.body) };
 
       // 서버가 받았다고 한 것만 큐에서 지운다. 나머지는 다음 기회에 다시 보낸다.
       var ok = {};
@@ -610,10 +671,12 @@
 
       data.lastSyncAt = new Date().toISOString();
       save();
-      return { ok: true, applied: (r.body.accepted || []).length };
+
+      var changed = before !== serializeForCompare(data);
+      return { ok: true, applied: (r.body.accepted || []).length, changed: changed };
     }).catch(function () {
       // 맥북이 꺼져 있거나 집 밖이다. 큐는 그대로 두고 다음에 다시 보낸다.
-      return { ok: false, reason: '서버에 닿지 못했습니다.' };
+      return { ok: false, reason: messageForNetworkFailure(cfg) };
     });
   }
 
@@ -627,9 +690,18 @@
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.token },
       body: JSON.stringify({ state: snapshot })
-    }).then(function (r) { return r.json(); })
-      .then(function (b) { if (b.ok) { data.outbox = []; save(); } return b; })
-      .catch(function () { return { ok: false, msg: '서버에 닿지 못했습니다.' }; });
+    }).then(function (res) {
+      return res.json().then(function (body) { return { status: res.status, body: body }; });
+    }).then(function (r) {
+      if (r.status !== 200 || !r.body || !r.body.ok) {
+        return { ok: false, msg: messageForStatus(r.status, r.body) };
+      }
+      data.outbox = [];
+      save();
+      return r.body;
+    }).catch(function () {
+      return { ok: false, msg: messageForNetworkFailure(cfg) };
+    });
   }
 
   global.KB = global.KB || {};
@@ -650,7 +722,8 @@
     upsert: upsert, remove: remove,
     setPin: setPin, checkPin: checkPin, setSound: setSound,
     exportJSON: exportJSON, importJSON: importJSON, factoryReset: factoryReset,
-    syncConfig: syncConfig, setSyncConfig: setSyncConfig, outbox: outbox, lastSync: lastSync,
+    syncConfig: syncConfig, setSyncConfig: setSyncConfig, normalizeSyncUrl: normalizeSyncUrl,
+    outbox: outbox, lastSync: lastSync,
     syncNow: syncNow, seedServer: seedServer
   };
 })(window);
