@@ -480,6 +480,20 @@
       '<p class="note" id="sync-status">' + esc(syncStatusText()) + '</p>';
   }
 
+  /**
+   * 화면의 서버 주소/토큰 입력칸 값을 그대로 저장한다.
+   * "저장" 버튼과 "지금 동기화"/"서버 채우기" 버튼이 전부 이 함수 하나를
+   * 거치게 해서, 저장을 깜빡해도 옆 버튼을 누르면 지금 화면에 보이는
+   * 값으로 동작하게 만든다(Defect 2). URL 정리는 store.setSyncConfig
+   * 안에서 한 곳에만 있다(Defect 3) — 여기서는 다시 손대지 않는다.
+   */
+  function persistSyncFields() {
+    var url = (($('#sync-url') || {}).value || '').trim();
+    var token = (($('#sync-token') || {}).value || '').trim();
+    // 둘 다 비우면 '동기화 끔' 으로 취급한다 — setSyncConfig(null) 이 큐까지 비워준다
+    store.setSyncConfig(url ? { url: url, token: token } : null);
+  }
+
   function wireData() {
     $('#btn-sound').onclick = function () {
       store.setSound(!store.all().sound);
@@ -646,15 +660,16 @@
       return true;
     }
     if (act === 'sync-save') {
-      var url = (($('#sync-url') || {}).value || '').trim();
-      var token = (($('#sync-token') || {}).value || '').trim();
-      // 둘 다 비우면 '동기화 끔' 으로 취급한다 — setSyncConfig(null) 이 큐까지 비워준다
-      store.setSyncConfig(url ? { url: url, token: token } : null);
+      persistSyncFields();
       renderAdmin();
       ui.toast('저장했습니다.');
       return true;
     }
     if (act === 'sync-now') {
+      // 저장 버튼을 안 눌러도 된다 — 주소·토큰을 막 입력하고 바로 옆의
+      // "지금 동기화"를 누르는 게 자연스러운 손 동작이라, 여기서도
+      // 먼저 화면의 값을 반영해 둔다("설정되지 않았습니다" 오해를 없앤다).
+      persistSyncFields();
       store.syncNow().then(function (r) {
         ui.toast(r.ok ? '동기화했습니다.' : (r.reason || '동기화에 실패했습니다.'));
         if (tab === 'data') renderAdmin();
@@ -662,6 +677,7 @@
       return true;
     }
     if (act === 'sync-seed') {
+      persistSyncFields(); // 위 sync-now 와 같은 이유
       // 태블릿이 기준이라는 설계 결정을 버튼을 누르는 순간에도 다시 알려준다 — 실수로 다른 기기 데이터를 날리지 않도록
       ui.confirmBox(
         '서버 채우기',
