@@ -18,6 +18,18 @@
   var lastCheeredFor = null;
 
   // ------------------------------------------------------------
+  // 탭 도중 "바쁨" 표시.
+  // 숙제 카드/습관 칩을 누르면 별이 날아가는 연출 + 480ms 뒤 재렌더가 예약된다.
+  // 그 사이에 동기화가 화면을 다시 그려버리면(innerHTML 통째 교체) DOM 이
+  // 바뀌어 있던 자리에 다음 탭이 떨어져 아무 일도 안 일어난 것처럼 보인다
+  // (아이 입장에선 "눌렀는데 씹혔다"). 그래서 탭이 시작되는 순간부터
+  // 그 탭의 재렌더가 끝날 때까지를 "바쁨"으로 표시하고, app.js 는 바쁜 동안
+  // 동기화로 인한 재렌더를 미룬다.
+  // ------------------------------------------------------------
+  var busy = false;
+  function isBusy() { return busy; }
+
+  // ------------------------------------------------------------
   // 1) 아이 화면 (숙제는 Task 3, 지금은 습관만 보인다)
   // ------------------------------------------------------------
   function renderKid(childId) {
@@ -143,10 +155,11 @@
     // 엉뚱한 아이(children()[0])의 습관이 토글되는 일이 없게 하려는 것이다.
     var c = store.getChild(global.KB.app.current().id);
     if (!c) return;
+    busy = true; // 탭 시작 — 이 함수의 재렌더가 끝나기 전까지 동기화 재렌더를 막는다
     var res = store.toggleHabit(c.id, habitId);
     if (res.done) { ui.beep('check'); ui.flyStar(el, $('#jarTarget')); }
-    var wait = ui.reduceMotion ? 0 : 480;
-    setTimeout(function () { global.KB.app.render(); }, wait);
+    var wait = ui.reduceMotion ? 0 : 480; // reduceMotion 은 함수가 아니라 값이다 — 괄호를 붙이면 안 된다
+    setTimeout(function () { global.KB.app.render(); busy = false; }, wait);
   }
 
   /** '어제' / '3일 전' — 아이가 읽고 순서를 납득하게 */
@@ -157,11 +170,12 @@
   }
 
   function onToggleHomework(id, el) {
+    busy = true; // 탭 시작 — 이 함수의 재렌더가 끝나기 전까지 동기화 재렌더를 막는다
     store.setHomeworkDone(id, store.dateKey());
     ui.beep('check');
     ui.flyStar(el, $('#jarTarget'));
-    var wait = ui.reduceMotion ? 0 : 480;
-    setTimeout(function () { global.KB.app.render(); }, wait);
+    var wait = ui.reduceMotion ? 0 : 480; // reduceMotion 은 함수가 아니라 값이다 — 괄호를 붙이면 안 된다
+    setTimeout(function () { global.KB.app.render(); busy = false; }, wait);
   }
 
   function onRedeem(rewardId) {
@@ -185,6 +199,7 @@
     renderShop: renderShop,
     onToggleHabit: onToggleHabit,
     onToggleHomework: onToggleHomework,
-    onRedeem: onRedeem
+    onRedeem: onRedeem,
+    isBusy: isBusy
   };
 })(window);

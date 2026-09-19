@@ -75,11 +75,30 @@
   // 없어야 한다"는 계약(Task 7)을 지키려면 여기서 먼저 막아야 한다.
   // 실패는 store.syncNow() 가 절대 reject 하지 않으므로 화면에 아무
   // 표시도 남기지 않는다 — 부모 화면(admin.js)만 결과를 보여준다.
+  //
+  // Defect 1: 동기화가 실제로 뭔가를 바꿔 왔는데도 화면이 그대로였다.
+  // boot() 는 store.load() 직후 한 번 그리고, watchSync() 의 첫 동기화는
+  // 그보다 나중에(네트워크 왕복만큼) 끝난다 — 그 결과를 반영하려면 다시
+  // 그려야 한다. 단, 세 조건을 지킨다:
+  //   (a) store.syncNow() 가 알려주는 changed 가 true 일 때만 — 바뀐 게
+  //       없는 주기적 동기화까지 매번 다시 그리면 깜빡임만 남긴다.
+  //   (b)(c) 아이가 막 탭해서 자기 재렌더(별 날아가는 연출 포함, 최대 480ms)를
+  //       기다리는 중이면 절대 끼어들지 않는다 — views.isBusy() 로 확인하고,
+  //       바쁘면 그 재렌더가 끝났을 때 다시 시도한다(버리지 않는다).
+  // 부모 화면(admin)은 그 자체로 동기화 상태를 보여주고 있고, 입력 중인
+  // 폼이 있을 수 있어 여기서 함부로 다시 그리지 않는다.
   // ------------------------------------------------------------
   function watchSync() {
+    function renderWhenFree() {
+      if (views.isBusy()) { setTimeout(renderWhenFree, 150); return; }
+      if (state.view !== 'admin') render();
+    }
+
     function trigger() {
       if (!store.syncConfig()) return;
-      store.syncNow();
+      store.syncNow().then(function (r) {
+        if (r && r.ok && r.changed) renderWhenFree();
+      });
     }
 
     trigger(); // 앱을 열자마자 한 번
